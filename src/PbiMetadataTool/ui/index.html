@@ -1,0 +1,2090 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PBI Claw</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface2: #22263a;
+  --border: #2e3350;
+  --accent: #4f8ef7;
+  --accent2: #7c5cfc;
+  --success: #22c55e;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+  --text: #e2e8f0;
+  --text2: #8892a4;
+  --text3: #4a5568;
+  --nav-w: 56px;
+  --font: 'Microsoft YaHei UI', 'Segoe UI', system-ui, sans-serif;
+  --mono: 'Cascadia Code', 'Consolas', monospace;
+}
+html[data-theme='light'] {
+  --bg: #f5f6fa;
+  --surface: #ffffff;
+  --surface2: #eef0f6;
+  --border: #d8dce8;
+  --accent: #0078d4;
+  --accent2: #5c2d91;
+  --success: #107c10;
+  --warn: #c47f00;
+  --danger: #d13438;
+  --text: #1a1a2e;
+  --text2: #5a6070;
+  --text3: #9aa0b0;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; }
+
+/* ── Layout ── */
+#app { display: flex; height: 100vh; overflow: hidden; }
+#nav { width: var(--nav-w); background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 4px; flex-shrink: 0; }
+#main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#topbar { height: 44px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 16px; gap: 12px; flex-shrink: 0; }
+#content { flex: 1; overflow: hidden; position: relative; }
+.page { position: absolute; inset: 0; display: none; }
+.page.active { display: flex; }
+
+/* ── Nav ── */
+.nav-logo { width: 36px; height: 36px; border-radius: 10px; object-fit: contain; margin-bottom: 8px; flex-shrink: 0; }
+.nav-btn { width: 40px; height: 40px; border-radius: 10px; border: none; background: transparent; color: var(--text2); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: background .15s, color .15s; position: relative; }
+.nav-btn:hover { background: var(--surface2); color: var(--text); }
+.nav-btn.active { background: rgba(79,142,247,.15); color: var(--accent); }
+.nav-btn .badge { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); display: none; }
+.nav-btn .badge.show { display: block; }
+.nav-spacer { flex: 1; }
+.nav-tip { position: absolute; left: calc(var(--nav-w) + 8px); background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 12px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .15s; z-index: 100; }
+.nav-btn:hover .nav-tip { opacity: 1; }
+
+/* ── Topbar ── */
+.topbar-title { font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: .3px; }
+.topbar-spacer { flex: 1; }
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid; }
+.chip-blue { background: rgba(79,142,247,.1); border-color: rgba(79,142,247,.3); color: var(--accent); }
+.chip-green { background: rgba(34,197,94,.1); border-color: rgba(34,197,94,.3); color: var(--success); }
+.chip-gray { background: rgba(74,85,104,.15); border-color: var(--border); color: var(--text2); }
+.chip-warn { background: rgba(245,158,11,.1); border-color: rgba(245,158,11,.3); color: var(--warn); }
+.chip-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.topbar-btn { height: 30px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); font-size: 12px; font-family: var(--font); cursor: pointer; transition: border-color .15s, background .15s; }
+.topbar-btn:hover { border-color: var(--accent); background: rgba(79,142,247,.08); }
+.topbar-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.topbar-btn.primary:hover { background: #6ba3ff; }
+.window-controls { display: inline-flex; gap: 4px; margin-left: 2px; }
+.win-btn { width: 30px; height: 26px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); font-size: 12px; line-height: 1; cursor: pointer; }
+.win-btn:hover { border-color: var(--accent); color: var(--text); background: rgba(79,142,247,.1); }
+.win-btn.close:hover { border-color: var(--danger); color: #fff; background: var(--danger); }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+
+/* ── Cards ── */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.card-header { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .6px; display: flex; align-items: center; gap: 8px; }
+.card-body { padding: 12px; }
+
+/* ── Dashboard Page ── */
+#page-dashboard { gap: 0; }
+#dash-left { width: 280px; flex-shrink: 0; border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+#dash-right { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#model-tree { flex: 1; overflow-y: auto; padding: 6px 0; }
+.tree-icon { width: 18px; height: 16px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text2); }
+.tree-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-count { font-size: 10px; color: var(--text3); background: var(--surface2); padding: 1px 5px; border-radius: 10px; }
+.tree-group { font-size: 11px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; padding: 8px 12px 3px; }
+
+/* ── Chat ── */
+#chat-area { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.msg { display: flex; gap: 10px; max-width: 85%; }
+.msg.user { align-self: flex-end; flex-direction: row-reverse; }
+.msg.assistant { align-self: flex-start; }
+.msg.system { align-self: center; max-width: 100%; }
+.msg-avatar { width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }
+.msg.user .msg-avatar { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
+.msg.assistant .msg-avatar { background: var(--surface2); color: var(--accent); border: 1px solid var(--border); }
+.msg-bubble { padding: 10px 14px; border-radius: 12px; line-height: 1.6; font-size: 13px; }
+.msg.user .msg-bubble { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; border-bottom-right-radius: 4px; }
+.msg.assistant .msg-bubble { background: var(--surface2); border: 1px solid var(--border); border-bottom-left-radius: 4px; color: var(--text); }
+.msg.system .msg-bubble { background: rgba(79,142,247,.06); border: 1px solid rgba(79,142,247,.2); color: var(--text2); font-size: 12px; border-radius: 8px; padding: 8px 14px; }
+.msg-bubble pre { background: rgba(0,0,0,.3); border-radius: 6px; padding: 10px; margin: 8px 0; overflow-x: auto; font-family: var(--mono); font-size: 12px; }
+.msg-bubble code { font-family: var(--mono); font-size: 12px; background: rgba(0,0,0,.25); padding: 1px 5px; border-radius: 3px; }
+.msg-bubble h1,.msg-bubble h2,.msg-bubble h3,.msg-bubble h4,.msg-bubble h5,.msg-bubble h6 { margin: 8px 0 6px; line-height: 1.35; color: var(--text); }
+.msg-bubble h1 { font-size: 18px; }
+.msg-bubble h2 { font-size: 16px; }
+.msg-bubble h3 { font-size: 15px; }
+.msg-bubble h4,.msg-bubble h5,.msg-bubble h6 { font-size: 14px; }
+.msg-bubble p { margin: 6px 0; }
+.msg-bubble ul,.msg-bubble ol { margin: 6px 0 6px 18px; }
+.msg-bubble li { margin: 2px 0; }
+.msg-bubble blockquote { margin: 8px 0; padding: 4px 10px; border-left: 3px solid var(--accent); color: var(--text2); background: rgba(79,142,247,.08); border-radius: 6px; }
+.msg-bubble a { color: var(--accent); text-decoration: none; }
+.msg-bubble a:hover { text-decoration: underline; }
+
+/* ── Input area ── */
+#input-area { border-top: 1px solid var(--border); padding: 12px 16px; background: var(--surface); }
+#quick-prompts { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.qp-btn { padding: 4px 10px; border-radius: 20px; border: 1px solid var(--border); background: transparent; color: var(--text2); font-size: 11.5px; font-family: var(--font); cursor: pointer; transition: all .15s; white-space: nowrap; }
+.qp-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(79,142,247,.08); }
+#input-row { display: flex; gap: 8px; align-items: center; }
+#chat-input { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; color: var(--text); font-family: var(--font); font-size: 13px; resize: none; min-height: 150px; max-height: 374px; outline: none; transition: border-color .15s; line-height: 1.5; }
+#chat-input:focus { border-color: var(--accent); }
+#chat-input::placeholder { color: var(--text3); }
+#chat-input.drag-over { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(79,142,247,.18); }
+.send-btn { width: 46px; height: 46px; border-radius: 10px; border: none; background: var(--accent); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px; transition: background .15s; flex-shrink: 0; }
+.send-btn:hover { background: #6ba3ff; }
+.send-btn:disabled { background: var(--surface2); color: var(--text3); cursor: not-allowed; }
+
+/* ── Writeback Page ── */
+#page-writeback { flex-direction: column; padding: 16px; gap: 12px; overflow-y: auto; }
+#plan-header { display: flex; align-items: center; gap: 10px; }
+#plan-header h2 { font-size: 16px; font-weight: 700; }
+#plan-empty { min-height: 170px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text3); }
+#plan-empty .empty-icon { font-size: 48px; opacity: .4; }
+#plan-content { display: flex; flex-direction: column; gap: 12px; }
+.action-item { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; transition: border-color .15s; }
+.action-item:hover { border-color: var(--accent); }
+.action-item input[type=checkbox] { margin-top: 2px; accent-color: var(--accent); width: 15px; height: 15px; flex-shrink: 0; cursor: pointer; }
+.action-body { flex: 1; }
+.action-type { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); margin-bottom: 3px; }
+.action-target { font-size: 13px; font-weight: 600; color: var(--text); }
+.action-reason { font-size: 12px; color: var(--text2); margin-top: 3px; }
+#plan-preview-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; font-family: var(--mono); font-size: 12px; color: var(--text2); white-space: pre-wrap; overflow-y: auto; max-height: 200px; }
+.plan-actions-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.writeback-options { display: flex; align-items: center; gap: 10px; padding: 10px 12px; width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.writeback-options .hint { font-size: 11.5px; color: var(--text2); }
+.writeback-toggle { width: 100%; }
+.writeback-toggle .setting-toggle { background: transparent; border: 1px solid var(--border); }
+.writeback-toggle .setting-toggle:hover { border-color: var(--accent); }
+.writeback-toggle .toggle-title { font-size: 12.8px; }
+.writeback-toggle .toggle-sub { font-size: 11.5px; }
+.msg-action-row { margin-top: 8px; display: flex; gap: 8px; justify-content: center; }
+.msg-action-btn { height: 28px; padding: 0 12px; border-radius: 6px; font-size: 12px; }
+#history-list { display: flex; flex-direction: column; }
+.history-empty { padding: 14px; font-size: 12px; color: var(--text3); text-align: center; }
+.history-item { padding: 10px 12px; border-bottom: 1px solid rgba(46,51,80,.5); display: flex; flex-direction: column; gap: 4px; }
+.history-item:last-child { border-bottom: none; }
+.history-meta { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text3); }
+.history-title { font-size: 12.5px; color: var(--text); font-weight: 600; }
+.history-detail { font-size: 11.5px; color: var(--text2); white-space: pre-wrap; }
+.history-pill { border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; font-size: 10.5px; }
+.history-pill.ok { border-color: rgba(34,197,94,.4); color: var(--success); }
+.history-pill.fail { border-color: rgba(239,68,68,.4); color: var(--danger); }
+
+/* ── Backups Page ── */
+#page-backups { flex-direction: column; padding: 16px; gap: 12px; overflow-y: auto; }
+#backup-table { width: 100%; border-collapse: collapse; }
+#backup-table th { text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); }
+#backup-table td { padding: 9px 12px; font-size: 12.5px; border-bottom: 1px solid rgba(46,51,80,.5); }
+#backup-table tr:hover td { background: var(--surface2); }
+#backup-table tr.selected td { background: rgba(79,142,247,.08); }
+.type-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.type-rollback { background: rgba(239,68,68,.1); color: var(--danger); border: 1px solid rgba(239,68,68,.25); }
+.type-snapshot { background: rgba(34,197,94,.1); color: var(--success); border: 1px solid rgba(34,197,94,.25); }
+.type-other { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
+
+/* ── Settings Page ── */
+#page-settings { padding: 20px; overflow-y: auto; justify-content: center; align-items: flex-start; }
+.settings-layout { width: min(1040px, 100%); margin: 0 auto; display: flex; gap: 16px; align-self: flex-start; }
+.settings-nav { width: 210px; flex-shrink: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.settings-nav-btn { width: 100%; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text2); text-align: left; padding: 8px 10px; font-size: 12.5px; font-family: var(--font); cursor: pointer; transition: all .15s; }
+.settings-nav-btn:hover { border-color: var(--border); color: var(--text); background: var(--surface2); }
+.settings-nav-btn.active { border-color: rgba(79,142,247,.35); background: rgba(79,142,247,.12); color: var(--accent); font-weight: 600; }
+.settings-body { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.settings-panel { display: none; flex-direction: column; gap: 12px; }
+.settings-panel.active { display: flex; }
+.setting-group { display: flex; flex-direction: column; gap: 12px; }
+.setting-group-title { font-size: 11px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .6px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.setting-row { display: flex; flex-direction: column; gap: 5px; }
+.setting-label { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.setting-desc { font-size: 11.5px; color: var(--text2); }
+.setting-input { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 8px 12px; color: var(--text); font-family: var(--font); font-size: 13px; outline: none; transition: border-color .15s; width: 100%; }
+.setting-input:focus { border-color: var(--accent); }
+.setting-input::placeholder { color: var(--text3); }
+.setting-toggle { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: border-color .15s; }
+.setting-toggle:hover { border-color: var(--accent); }
+.toggle-switch { width: 36px; height: 20px; border-radius: 10px; background: var(--surface2); border: 1px solid var(--border); position: relative; transition: background .2s; flex-shrink: 0; }
+.toggle-switch.on { background: var(--accent); border-color: var(--accent); }
+.toggle-knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .2s; }
+.toggle-switch.on .toggle-knob { left: 18px; }
+.toggle-text { flex: 1; }
+.toggle-title { font-size: 13px; font-weight: 600; }
+.toggle-sub { font-size: 11.5px; color: var(--text2); margin-top: 1px; }
+.save-btn { align-self: flex-start; padding: 8px 24px; border-radius: 8px; border: none; background: var(--accent); color: #fff; font-family: var(--font); font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s; }
+.save-btn:hover { background: #6ba3ff; }
+.save-btn:disabled { opacity: .65; cursor: not-allowed; }
+.settings-actions { display: flex; align-items: center; gap: 8px; }
+.setting-credit { margin-top: 4px; font-size: 11px; color: var(--text3); }
+.setting-credit a { color: inherit; text-decoration: none; }
+.setting-credit a:hover { color: var(--accent); }
+.about-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.about-title { font-size: 13px; font-weight: 700; color: var(--text); }
+.about-text { font-size: 12px; color: var(--text2); line-height: 1.65; }
+.about-text a { color: var(--accent); text-decoration: none; }
+.about-text a:hover { text-decoration: underline; }
+.about-ai-note { font-size: 12.5px; color: var(--text); font-family: 'Segoe UI Variable', 'Microsoft YaHei UI', sans-serif; font-weight: 600; letter-spacing: .35px; }
+@media (max-width: 920px) {
+  .settings-layout { flex-direction: column; }
+  .settings-nav { width: 100%; flex-direction: row; flex-wrap: wrap; }
+  .settings-nav-btn { width: auto; }
+}
+
+/* ── Preflight dialog ── */
+#preflight-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 200; backdrop-filter: blur(4px); }
+#preflight-overlay.show { display: flex; }
+#preflight-dialog { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; width: 520px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; }
+#preflight-dialog .dlg-header { padding: 16px 20px; border-bottom: 1px solid var(--border); font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+#preflight-dialog .dlg-body { padding: 16px 20px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 10px; }
+#preflight-dialog .dlg-footer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+.preflight-item { display: flex; gap: 8px; padding: 8px 12px; border-radius: 7px; font-size: 12.5px; }
+.preflight-item.info { background: rgba(79,142,247,.08); border: 1px solid rgba(79,142,247,.2); color: var(--text); }
+.preflight-item.warn { background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.2); color: var(--warn); }
+.preflight-item.error { background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.2); color: var(--danger); }
+.dlg-btn { padding: 7px 20px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); font-family: var(--font); font-size: 13px; cursor: pointer; transition: all .15s; }
+.dlg-btn:hover { border-color: var(--accent); }
+.dlg-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.dlg-btn.primary:hover { background: #6ba3ff; }
+.dlg-btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.dlg-btn.danger:hover { background: #f87171; }
+#autoexec-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 210; backdrop-filter: blur(4px); }
+#autoexec-overlay.show { display: flex; }
+#autoexec-dialog { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; width: 460px; max-width: calc(100vw - 36px); display: flex; flex-direction: column; overflow: hidden; }
+#autoexec-dialog .dlg-header { padding: 16px 20px; border-bottom: 1px solid var(--border); font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+#autoexec-dialog .dlg-body { padding: 16px 20px; font-size: 12.5px; color: var(--text2); line-height: 1.65; }
+#autoexec-dialog .dlg-footer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ── Connect dialog ── */
+#connect-overlay { position: fixed; inset: 0; padding: 18px; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 200; backdrop-filter: blur(4px); }
+#connect-overlay.show { display: flex; }
+#connect-dialog { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; width: 480px; max-width: calc(100vw - 36px); display: flex; flex-direction: column; overflow: hidden; }
+.mode-tabs { display: flex; border-bottom: 1px solid var(--border); }
+.mode-tab { flex: 1; padding: 10px; text-align: center; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text2); border-bottom: 2px solid transparent; transition: all .15s; }
+.mode-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.mode-panel { display: none; padding: 16px 20px; flex-direction: column; gap: 12px; }
+.mode-panel.active { display: flex; }
+#connect-dialog .dlg-footer { padding: 14px 20px 16px; }
+.field-label { font-size: 12px; font-weight: 600; color: var(--text2); margin-bottom: 4px; }
+select.setting-input { cursor: pointer; }
+
+/* ── Theme toggle ── */
+.theme-btn { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 15px; transition: all .15s; flex-shrink: 0; }
+.theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Model browser tabs ── */
+#model-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.model-tab { flex: 1; padding: 7px 4px; text-align: center; font-size: 11.5px; font-weight: 600; cursor: pointer; color: var(--text2); border-bottom: 2px solid transparent; transition: all .15s; }
+.model-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.model-tab:hover:not(.active) { color: var(--text); background: var(--surface2); }
+#model-search-wrap { padding: 8px 8px 6px; border-bottom: 1px solid var(--border); }
+#model-search { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; color: var(--text); font-size: 12px; outline: none; }
+#model-search:focus { border-color: var(--accent); }
+#model-search::placeholder { color: var(--text3); }
+
+/* ── Tree expand ── */
+.tree-node { display: flex; align-items: center; gap: 6px; padding: 4px 12px; cursor: pointer; border-radius: 0; transition: background .1s; font-size: 12.5px; user-select: none; }
+.tree-node:hover { background: var(--surface2); }
+.tree-node.selected { background: rgba(79,142,247,.12); color: var(--accent); }
+.tree-node[draggable="true"] { cursor: grab; }
+.tree-node[draggable="true"]:active { cursor: grabbing; }
+.tree-expand { width: 14px; height: 14px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 9px; color: var(--text3); transition: transform .15s; }
+.tree-expand.open { transform: rotate(90deg); }
+.tree-expand.leaf { visibility: hidden; }
+.tree-children { display: none; }
+.tree-children.open { display: block; }
+.tree-col { padding-left: 32px; }
+.tree-msr { padding-left: 32px; }
+.tree-folder { padding-left: 28px; font-size: 12px; }
+.tree-msr-folder { padding-left: 46px; }
+
+/* ── Tooltip ── */
+.tree-tooltip { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 11.5px; color: var(--text); max-width: 520px; z-index: 500; pointer-events: none; box-shadow: 0 4px 16px rgba(0,0,0,.25); line-height: 1.6; display: none; }
+.tree-tooltip.show { display: block; }
+.tt-row { display: flex; gap: 6px; }
+.tt-key { color: var(--text3); min-width: 60px; }
+.tt-val { color: var(--text); word-break: break-all; }
+
+/* ── Spinner ── */
+.spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Toast ── */
+#toast-container { position: fixed; top: 52px; right: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; z-index: 300; }
+.toast { padding: 10px 16px; border-radius: 8px; font-size: 13px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); animation: slideIn .2s ease; max-width: 320px; }
+.toast.success { border-color: rgba(34,197,94,.4); background: rgba(34,197,94,.1); color: var(--success); }
+.toast.error { border-color: rgba(239,68,68,.4); background: rgba(239,68,68,.1); color: var(--danger); }
+.toast.warn { border-color: rgba(245,158,11,.4); background: rgba(245,158,11,.1); color: var(--warn); }
+@keyframes slideIn { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+/* ── Thinking indicator ── */
+.thinking { display: flex; gap: 4px; align-items: center; padding: 10px 14px; }
+.thinking span { width: 7px; height: 7px; border-radius: 50%; background: var(--text3); animation: bounce .9s infinite; }
+.thinking span:nth-child(2) { animation-delay: .15s; }
+.thinking span:nth-child(3) { animation-delay: .3s; }
+@keyframes bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-6px); background: var(--accent); } }
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- Nav -->
+<nav id="nav">
+  <img class="nav-logo" src="data:image/png;base64,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" alt="PBI Hub">
+  <button class="nav-btn active" data-page="dashboard" title="PBI CLaw">
+    <span class="nav-tip">PBI CLaw</span>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+  </button>
+  <button class="nav-btn" data-page="writeback" title="变更执行">
+    <span class="nav-tip">变更执行</span>
+    <span class="badge" id="plan-badge"></span>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+  </button>
+  <button class="nav-btn" data-page="backups" title="备份回滚">
+    <span class="nav-tip">备份回滚</span>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+  </button>
+  <div class="nav-spacer"></div>
+  <button class="nav-btn" data-page="settings" title="设置">
+    <span class="nav-tip">设置</span>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+  </button>
+</nav>
+
+<!-- Main -->
+<div id="main">
+  <!-- Topbar -->
+  <div id="topbar">
+    <span class="topbar-title" id="page-title">PBI CLaw</span>
+    <div class="topbar-spacer"></div>
+    <div id="conn-chip" class="chip chip-gray"><span class="chip-dot"></span><span id="conn-text">未连接</span></div>
+    <div id="mode-chip" class="chip chip-gray"><span id="mode-text">只读</span></div>
+    <div id="model-chip" class="chip chip-blue" style="display:none"><span id="model-text"></span></div>
+    <button class="theme-btn" id="btn-theme" title="切换到浅色模式">☀</button>
+    <button class="topbar-btn primary" id="btn-connect">连接模型</button>
+    <div class="window-controls">
+      <button class="win-btn" id="btn-win-min" title="最小化">—</button>
+      <button class="win-btn" id="btn-win-max" title="最大化">▢</button>
+      <button class="win-btn close" id="btn-win-close" title="关闭">✕</button>
+    </div>
+  </div>
+
+  <!-- Content -->
+  <div id="content">
+
+    <!-- Dashboard -->
+    <div class="page active" id="page-dashboard">
+      <div id="dash-left">
+        <div class="card-header" style="border-bottom:1px solid var(--border)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          模型浏览器
+        </div>
+        <div id="model-tabs">
+          <div class="model-tab active" data-tab="tables">表</div>
+          <div class="model-tab" data-tab="relationships">关系</div>
+          <div class="model-tab" data-tab="measures">度量值</div>
+        </div>
+        <div id="model-search-wrap">
+          <input id="model-search" placeholder="搜索表/字段/关系/度量值..." autocomplete="off">
+        </div>
+        <div id="model-tree">
+          <div style="padding:24px 16px;color:var(--text3);font-size:12px;text-align:center">连接模型后显示结构树</div>
+        </div>
+      </div>
+      <div id="dash-right">
+        <div id="chat-area" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px">
+          <div class="msg system">
+            <div class="msg-bubble">👋 欢迎使用 PBI Claw。连接模型后即可开始 AI 对话分析。</div>
+          </div>
+        </div>
+        <div id="input-area">
+          <div id="quick-prompts"></div>
+          <div id="input-row">
+            <textarea id="chat-input" rows="5" placeholder="输入问题，Ctrl+Enter 发送…"></textarea>
+            <button class="send-btn" id="btn-send" disabled>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Writeback -->
+    <div class="page" id="page-writeback">
+      <div class="writeback-options">
+        <div class="writeback-toggle">
+          <div class="setting-toggle" id="wb-auto-toggle">
+            <div class="toggle-switch" id="wb-auto-switch"><div class="toggle-knob"></div></div>
+            <div class="toggle-text">
+              <div class="toggle-title">允许自动执行（跳过人工确认）</div>
+              <div class="toggle-sub">开启后，预检无错误时将直接执行变更。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="plan-empty">
+        <div class="empty-icon">📋</div>
+        <div style="font-size:15px;font-weight:600;color:var(--text2)">暂无待执行计划</div>
+        <div style="font-size:12.5px">在 AI 对话中生成变更计划后，将在此显示</div>
+      </div>
+      <div id="plan-content" style="display:none;width:100%">
+        <div id="plan-header">
+          <h2 id="plan-title">变更计划</h2>
+          <div class="topbar-spacer"></div>
+          <div class="plan-actions-row">
+            <button class="topbar-btn" id="btn-check-all">全选</button>
+            <button class="topbar-btn" id="btn-uncheck-all">清空</button>
+            <button class="topbar-btn" id="btn-discard-plan">丢弃</button>
+            <button class="topbar-btn primary" id="btn-execute">预检并执行</button>
+          </div>
+        </div>
+        <div id="action-list"></div>
+        <div class="card-header" style="margin-top:8px">计划预览 (JSON)</div>
+        <div id="plan-preview-box"></div>
+      </div>
+      <div class="card" style="width:100%">
+        <div class="card-header">变更历史</div>
+        <div class="card-body" style="padding:0">
+          <div id="history-empty" class="history-empty">暂无变更历史</div>
+          <div id="history-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Backups -->
+    <div class="page" id="page-backups">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+        <h2 style="font-size:16px;font-weight:700">备份与回滚</h2>
+        <div class="topbar-spacer"></div>
+        <button class="topbar-btn" id="btn-refresh-backups">刷新</button>
+        <button class="topbar-btn" id="btn-open-folder">打开目录</button>
+        <button class="topbar-btn primary" id="btn-rollback">执行回滚</button>
+      </div>
+      <div class="card" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+        <div style="overflow-y:auto;flex:1">
+          <table id="backup-table">
+            <thead><tr><th>时间</th><th>类型</th><th>文件名</th><th>大小</th><th>路径</th></tr></thead>
+            <tbody id="backup-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="page" id="page-settings">
+      <div class="settings-layout">
+        <div class="settings-nav">
+          <button class="settings-nav-btn active" data-settings-nav="ai">AI 引擎</button>
+          <button class="settings-nav-btn" data-settings-nav="model">连接与模型</button>
+          <button class="settings-nav-btn" data-settings-nav="permission">权限与执行</button>
+          <button class="settings-nav-btn" data-settings-nav="ui">界面与交互</button>
+          <button class="settings-nav-btn" data-settings-nav="prompt">提示词</button>
+          <button class="settings-nav-btn" data-settings-nav="about">关于</button>
+        </div>
+        <div class="settings-body">
+          <div class="settings-panel active" data-settings-section="ai">
+            <div class="setting-group">
+              <div class="setting-group-title">AI 引擎</div>
+              <div class="setting-row">
+                <div class="setting-label">Base URL</div>
+                <input class="setting-input" id="s-baseurl" placeholder="https://api.openai.com/v1">
+              </div>
+              <div class="setting-row">
+                <div class="setting-label">模型</div>
+                <input class="setting-input" id="s-model" placeholder="gpt-4o">
+              </div>
+              <div class="setting-row">
+                <div class="setting-label">API Key</div>
+                <input class="setting-input" id="s-apikey" type="password" placeholder="sk-…">
+              </div>
+              <div class="setting-row">
+                <div class="setting-label">Temperature</div>
+                <input class="setting-input" id="s-temp" type="number" min="0" max="2" step="0.05" style="width:120px">
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-panel" data-settings-section="model">
+            <div class="setting-group">
+              <div class="setting-group-title">连接与模型</div>
+              <div class="setting-row">
+                <div class="setting-label">默认连接模式</div>
+                <select class="setting-input" id="s-default-connect-mode">
+                  <option value="pbi">Power BI Desktop</option>
+                  <option value="tabular">Tabular Server</option>
+                </select>
+              </div>
+              <div class="setting-row">
+                <div class="setting-label">默认 Tabular 服务器</div>
+                <input class="setting-input" id="s-default-tabular-server" placeholder="myserver\\tabular 或 myserver:2383">
+              </div>
+              <div class="setting-row">
+                <div class="setting-label">默认模型浏览页签</div>
+                <select class="setting-input" id="s-default-model-tab">
+                  <option value="tables">表</option>
+                  <option value="relationships">关系</option>
+                  <option value="measures">度量值</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-panel" data-settings-section="permission">
+            <div class="setting-group">
+              <div class="setting-group-title">权限与执行</div>
+              <div class="setting-toggle" id="toggle-allow-changes">
+                <div class="toggle-switch" id="ts-allow"><div class="toggle-knob"></div></div>
+                <div class="toggle-text">
+                  <div class="toggle-title">允许写回模型</div>
+                  <div class="toggle-sub">开启后 AI 可生成并执行变更计划（高风险）</div>
+                </div>
+              </div>
+              <div class="setting-toggle" id="toggle-include-hidden">
+                <div class="toggle-switch" id="ts-hidden"><div class="toggle-knob"></div></div>
+                <div class="toggle-text">
+                  <div class="toggle-title">包含隐藏对象</div>
+                  <div class="toggle-sub">在模型上下文中包含隐藏的表、列和度量值</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-panel" data-settings-section="ui">
+            <div class="setting-group">
+              <div class="setting-group-title">界面与交互</div>
+              <div class="setting-row">
+                <div class="setting-label">主题</div>
+                <select class="setting-input" id="s-theme">
+                  <option value="dark">深色</option>
+                  <option value="light">浅色</option>
+                </select>
+              </div>
+              <div class="setting-toggle" id="toggle-show-dax">
+                <div class="toggle-switch" id="ts-show-dax"><div class="toggle-knob"></div></div>
+                <div class="toggle-text">
+                  <div class="toggle-title">悬浮详情显示 DAX</div>
+                  <div class="toggle-sub">关闭后 Tooltip 中不再展示度量值 DAX 内容</div>
+                </div>
+              </div>
+              <div class="setting-toggle" id="toggle-show-quickprompts">
+                <div class="toggle-switch" id="ts-show-quickprompts"><div class="toggle-knob"></div></div>
+                <div class="toggle-text">
+                  <div class="toggle-title">显示快捷问题按钮</div>
+                  <div class="toggle-sub">控制输入框上方快捷问题是否显示</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-panel" data-settings-section="prompt">
+            <div class="setting-group">
+              <div class="setting-group-title">提示词</div>
+              <div class="setting-row">
+                <div class="setting-label">自定义系统提示词</div>
+                <textarea class="setting-input" id="s-sysprompt" rows="4" style="resize:vertical"></textarea>
+              </div>
+              <div class="setting-row">
+                <div class="setting-label">快捷提示词（每行一个，最多 12 条）</div>
+                <textarea class="setting-input" id="s-quickprompts" rows="5" style="resize:vertical"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-panel" data-settings-section="about">
+            <div class="setting-group">
+              <div class="setting-group-title">关于</div>
+              <div class="about-card">
+                <div class="about-title">PBI Claw</div>
+                <div class="about-text">面向 Power BI 建模场景的桌面助手，提供从模型查看到 AI 分析再到变更执行的完整闭环。</div>
+                <div class="about-text">技术架构：.NET 8 + WinForms + WebView2，前端基于 HTML/CSS/JavaScript，后端通过 TOM 读取与写回模型元数据。</div>
+                <div class="about-text">功能覆盖：模型连接、表/关系/度量值浏览、对象详情与 DAX 悬浮查看、AI 计划生成、预检执行与备份回滚。</div>
+                <div class="about-text">网址：<a href="https://pbihub.cn/" target="_blank" rel="noopener noreferrer">https://pbihub.cn/</a></div>
+                <div class="about-text">作者：施阳</div>
+                <div class="about-ai-note">本项目完全由AI实现</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-actions">
+            <button class="topbar-btn" id="btn-test-settings">测试连接</button>
+            <button class="save-btn" id="btn-save-settings">保存设置</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /app -->
+
+<!-- Connect Dialog -->
+<div id="connect-overlay">
+  <div id="connect-dialog">
+    <div class="dlg-header">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M5 12.55a11 11 0 0114.08 0"/><path d="M1.42 9a16 16 0 0121.16 0"/><path d="M8.53 16.11a6 6 0 016.95 0"/><circle cx="12" cy="20" r="1"/></svg>
+      连接模型
+    </div>
+    <div class="mode-tabs">
+      <div class="mode-tab active" data-mode="pbi">Power BI Desktop</div>
+      <div class="mode-tab" data-mode="tabular">Tabular Server</div>
+    </div>
+    <div class="mode-panel active" id="panel-pbi">
+      <div><div class="field-label">报告实例</div>
+        <select class="setting-input" id="conn-instances"><option value="">正在扫描...</option></select></div>
+      <div><div class="field-label">端口（自动填充）</div>
+        <input class="setting-input" id="conn-port" placeholder="例：12345"></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer">
+          <input type="checkbox" id="conn-allow-write" style="accent-color:var(--accent)"> 允许写回（高风险）
+        </label>
+      </div>
+    </div>
+    <div class="mode-panel" id="panel-tabular">
+      <div><div class="field-label">服务器地址</div>
+        <input class="setting-input" id="conn-tabular" placeholder="myserver\tabular 或 myserver:2383"></div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer">
+        <input type="checkbox" id="conn-allow-write2" style="accent-color:var(--accent)"> 允许写回（高风险）
+      </label>
+    </div>
+    <div class="dlg-footer">
+      <button class="dlg-btn" id="conn-cancel">取消</button>
+      <button class="dlg-btn primary" id="conn-ok">连接</button>
+    </div>
+  </div>
+</div>
+
+<!-- Preflight Dialog -->
+<div id="preflight-overlay">
+  <div id="preflight-dialog">
+    <div class="dlg-header">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <span id="pf-title">预检结果</span>
+    </div>
+    <div class="dlg-body" id="pf-body"></div>
+    <div class="dlg-footer">
+      <button class="dlg-btn" id="pf-cancel">取消</button>
+      <button class="dlg-btn danger" id="pf-confirm" style="display:none">确认执行</button>
+    </div>
+  </div>
+</div>
+
+<!-- Auto Execute Confirm Dialog -->
+<div id="autoexec-overlay">
+  <div id="autoexec-dialog">
+    <div class="dlg-header">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="2"><path d="M12 2v20"/><path d="M2 12h20"/></svg>
+      启用自动执行
+    </div>
+    <div class="dlg-body">
+      开启后，检测到变更计划时将自动发起预检并在通过后直接写回模型。<br>
+      该操作会跳过人工确认，请仅在你完全信任变更结果时启用。
+    </div>
+    <div class="dlg-footer">
+      <button class="dlg-btn" id="autoexec-cancel">取消</button>
+      <button class="dlg-btn danger" id="autoexec-confirm">确认启用</button>
+    </div>
+  </div>
+</div>
+
+<div id="tree-tooltip" class="tree-tooltip"></div>
+<div id="toast-container"></div>
+<script>
+// Bridge
+const bridge = {
+  send(type, payload) {
+    window.chrome.webview.postMessage(JSON.stringify({ type, payload }));
+  }
+};
+window.chrome.webview.addEventListener('message', e => {
+  try { App.handle(JSON.parse(e.data)); } catch(err) { console.error(err); }
+});
+
+// State
+const State = {
+  connected: false, dbName: '', allowChanges: false, aiModel: '',
+  instances: [], pendingPlan: null, backups: [], settings: {}, planHistory: [],
+  selectedBackupPath: null, connectMode: 'pbi',
+  model: null, modelTab: 'tables', modelSearch: '', expandedTables: {}, expandedMeasureTables: {}, expandedMeasureFolders: {},
+  tooltipMap: {}, activeTooltipId: null, theme: 'dark',
+  uiPrefs: {
+    theme: 'dark',
+    defaultModelTab: 'tables',
+    defaultConnectMode: 'pbi',
+    defaultTabularServer: '',
+    showDaxInTooltip: true,
+    showQuickPrompts: true,
+    autoExecuteChanges: false
+  }
+};
+
+const DEFAULT_QUICK_PROMPTS = [
+  '分析当前模型并给出3个优化建议和可执行步骤。',
+  '检查模型中的关系和命名规范，指出问题并给出修正建议。',
+  '识别可能影响性能的度量值并给出优化思路。'
+];
+
+const UI_PREFS_KEY = 'abi-ui-prefs';
+const VOLATILE_STORAGE = {};
+
+function storageGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch (_) {
+    return Object.prototype.hasOwnProperty.call(VOLATILE_STORAGE, key) ? VOLATILE_STORAGE[key] : null;
+  }
+}
+
+function storageSet(key, value) {
+  const text = String(value);
+  VOLATILE_STORAGE[key] = text;
+  try {
+    localStorage.setItem(key, text);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function normalizeUiPrefs(raw) {
+  const src = raw || {};
+  const theme = src.theme === 'light' ? 'light' : 'dark';
+  const defaultModelTab = (src.defaultModelTab === 'relationships' || src.defaultModelTab === 'measures') ? src.defaultModelTab : 'tables';
+  const defaultConnectMode = src.defaultConnectMode === 'tabular' ? 'tabular' : 'pbi';
+  const defaultTabularServer = String(src.defaultTabularServer || '').trim();
+  const showDaxInTooltip = src.showDaxInTooltip !== false;
+  const showQuickPrompts = src.showQuickPrompts !== false;
+  const autoExecuteChanges = src.autoExecuteChanges === true;
+  return { theme, defaultModelTab, defaultConnectMode, defaultTabularServer, showDaxInTooltip, showQuickPrompts, autoExecuteChanges };
+}
+
+function loadUiPrefs() {
+  try {
+    const text = storageGet(UI_PREFS_KEY);
+    if (!text) {
+      const legacyTheme = storageGet('abi-theme');
+      return normalizeUiPrefs({ theme: legacyTheme === 'light' ? 'light' : 'dark' });
+    }
+    return normalizeUiPrefs(JSON.parse(text));
+  } catch (_) {
+    return normalizeUiPrefs({});
+  }
+}
+
+function saveUiPrefs() {
+  storageSet(UI_PREFS_KEY, JSON.stringify(State.uiPrefs));
+}
+
+function normalizeQuickPrompts(prompts) {
+  if (!Array.isArray(prompts)) return [];
+  return prompts
+    .map(function(p) { return String(p || '').trim(); })
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+// Toast
+function toast(msg, type) {
+  type = type || 'info';
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(function() { el.remove(); }, 3500);
+}
+
+// Navigation
+const pageTitles = { dashboard:'PBI CLaw', writeback:'变更执行', backups:'备份回滚', settings:'设置' };
+function showPage(key) {
+  document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
+  document.querySelectorAll('.nav-btn[data-page]').forEach(function(b) { b.classList.remove('active'); });
+  const page = document.getElementById('page-' + key);
+  if (page) page.classList.add('active');
+  const btn = document.querySelector('.nav-btn[data-page="' + key + '"]');
+  if (btn) btn.classList.add('active');
+  document.getElementById('page-title').textContent = pageTitles[key] || key;
+}
+document.querySelectorAll('.nav-btn[data-page]').forEach(function(btn) {
+  btn.addEventListener('click', function() { showPage(btn.dataset.page); });
+});
+
+document.getElementById('btn-win-min').addEventListener('click', function() {
+  bridge.send('windowControl', { cmd: 'minimize' });
+});
+document.getElementById('btn-win-max').addEventListener('click', function() {
+  bridge.send('windowControl', { cmd: 'maximize' });
+});
+document.getElementById('btn-win-close').addEventListener('click', function() {
+  bridge.send('windowControl', { cmd: 'close' });
+});
+document.getElementById('topbar').addEventListener('mousedown', function(e) {
+  if (e.button !== 0) return;
+  if (e.target.closest('button,input,textarea,select,a,label')) return;
+  bridge.send('windowControl', { cmd: 'drag' });
+});
+
+// Theme
+function applyTheme(theme, persist) {
+  const next = theme === 'light' ? 'light' : 'dark';
+  State.theme = next;
+  document.documentElement.setAttribute('data-theme', next);
+  storageSet('abi-theme', next);
+  State.uiPrefs.theme = next;
+  if (persist !== false) saveUiPrefs();
+  const btn = document.getElementById('btn-theme');
+  if (btn) {
+    if (next === 'dark') {
+      btn.textContent = '☀';
+      btn.title = '切换到浅色模式';
+    } else {
+      btn.textContent = '🌙';
+      btn.title = '切换到深色模式';
+    }
+  }
+}
+
+function initTheme() {
+  applyTheme(State.uiPrefs.theme, false);
+}
+
+document.getElementById('btn-theme').addEventListener('click', function() {
+  applyTheme(State.theme === 'dark' ? 'light' : 'dark', true);
+});
+
+// Model tabs
+function setModelTab(tab) {
+  const next = tab === 'relationships' || tab === 'measures' ? tab : 'tables';
+  State.modelTab = next;
+  document.querySelectorAll('.model-tab').forEach(function(el) {
+    el.classList.toggle('active', el.dataset.tab === next);
+  });
+  renderTree(State.model);
+}
+
+document.querySelectorAll('.model-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    setModelTab(tab.dataset.tab);
+  });
+});
+
+document.getElementById('model-search').addEventListener('input', function() {
+  State.modelSearch = this.value || '';
+  renderTree(State.model);
+});
+
+// Settings section tabs
+function setSettingsSection(section) {
+  const next = section || 'ai';
+  document.querySelectorAll('.settings-nav-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.settingsNav === next);
+  });
+  document.querySelectorAll('.settings-panel').forEach(function(panel) {
+    panel.classList.toggle('active', panel.dataset.settingsSection === next);
+  });
+}
+
+document.querySelectorAll('.settings-nav-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    setSettingsSection(btn.dataset.settingsNav);
+  });
+});
+
+// Chips
+function updateChips() {
+  const connChip = document.getElementById('conn-chip');
+  const connText = document.getElementById('conn-text');
+  const modeChip = document.getElementById('mode-chip');
+  const modeText = document.getElementById('mode-text');
+  const modelChip = document.getElementById('model-chip');
+  const modelText = document.getElementById('model-text');
+  if (State.connected) {
+    connChip.className = 'chip chip-green';
+    connText.textContent = State.dbName || '已连接';
+  } else {
+    connChip.className = 'chip chip-gray';
+    connText.textContent = '未连接';
+  }
+  if (State.allowChanges) {
+    modeChip.className = 'chip chip-warn';
+    modeText.textContent = '写回模式';
+  } else {
+    modeChip.className = 'chip chip-gray';
+    modeText.textContent = '只读';
+  }
+  if (State.aiModel) {
+    modelChip.style.display = '';
+    modelText.textContent = State.aiModel;
+  } else {
+    modelChip.style.display = 'none';
+  }
+  document.getElementById('btn-send').disabled = !State.connected;
+}
+
+// Tree
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function displayModelName(rawName) {
+  const text = String(rawName || '').trim();
+  if (!text) return '';
+
+  // Remove common id suffix patterns such as "(ID: ...)" or trailing GUIDs.
+  let cleaned = text
+    .replace(/\s*\(\s*id\s*[:：]\s*[^)]+\)\s*$/i, '')
+    .replace(/\s*\[\s*id\s*[:：]\s*[^\]]+\]\s*$/i, '')
+    .replace(/\s*[-|]\s*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\s*$/i, '')
+    .replace(/\s*\(?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\)?\s*$/i, '')
+    .trim();
+
+  return cleaned || text;
+}
+
+function columnTypeIcon(column) {
+  const dataType = String((column && column.dataType) || '').toLowerCase();
+  const columnType = String((column && column.columnType) || '').toLowerCase();
+
+  if (columnType.includes('calculated')) return 'ƒ';
+  if (dataType.includes('int') || dataType.includes('double') || dataType.includes('decimal') || dataType.includes('currency')) return '#';
+  if (dataType.includes('date') || dataType.includes('time')) return '◷';
+  if (dataType.includes('bool')) return '◉';
+  if (dataType.includes('string') || dataType.includes('text')) return 'Aa';
+  if (dataType.includes('binary')) return '◫';
+  return '•';
+}
+
+function escWithBreaks(s) {
+  return esc(s).replace(/\n/g, '<br>');
+}
+
+function tooltipHtml(detail) {
+  if (!detail) return '';
+  let html = '';
+  if (detail.title) {
+    html += '<div style="font-weight:700;margin-bottom:6px">' + esc(detail.title) + '</div>';
+  }
+  (detail.rows || []).forEach(function(row) {
+    if (!row || row.length < 2 || row[1] === null || row[1] === undefined || row[1] === '') return;
+    html += '<div class="tt-row"><span class="tt-key">' + esc(row[0]) + '</span><span class="tt-val">' + esc(String(row[1])) + '</span></div>';
+  });
+  if (detail.dax && State.uiPrefs.showDaxInTooltip) {
+    html += '<div class="tt-row"><span class="tt-key">DAX</span><span class="tt-val" style="white-space:pre-wrap;font-family:var(--mono);word-break:break-word">' + escWithBreaks(detail.dax) + '</span></div>';
+  }
+  return html;
+}
+
+function hideTreeTooltip() {
+  const tooltip = document.getElementById('tree-tooltip');
+  if (!tooltip) return;
+  tooltip.classList.remove('show');
+  tooltip.style.left = '-9999px';
+  tooltip.style.top = '-9999px';
+  State.activeTooltipId = null;
+}
+
+function showTreeTooltip(id) {
+  const tooltip = document.getElementById('tree-tooltip');
+  const detail = State.tooltipMap[id];
+  if (!tooltip || !detail) {
+    hideTreeTooltip();
+    return;
+  }
+  tooltip.innerHTML = tooltipHtml(detail);
+  tooltip.classList.add('show');
+  State.activeTooltipId = id;
+}
+
+function positionTreeTooltip(x, y) {
+  const tooltip = document.getElementById('tree-tooltip');
+  if (!tooltip || !tooltip.classList.contains('show')) return;
+  const gap = 12;
+  const pad = 8;
+  let left = x + gap;
+  let top = y + gap;
+  const rect = tooltip.getBoundingClientRect();
+  if (left + rect.width + pad > window.innerWidth) left = x - rect.width - gap;
+  if (top + rect.height + pad > window.innerHeight) top = window.innerHeight - rect.height - pad;
+  if (left < pad) left = pad;
+  if (top < pad) top = pad;
+  tooltip.style.left = left + 'px';
+  tooltip.style.top = top + 'px';
+}
+
+function searchMatches(term, values) {
+  if (!term) return true;
+  return values.some(function(v) {
+    return String(v || '').toLowerCase().includes(term);
+  });
+}
+
+function expandedState(map, key, defaultOpen) {
+  if (Object.prototype.hasOwnProperty.call(map, key)) {
+    return !!map[key];
+  }
+  return !!defaultOpen;
+}
+
+function renderTree(model) {
+  State.model = model || null;
+  State.tooltipMap = {};
+  hideTreeTooltip();
+
+  const container = document.getElementById('model-tree');
+  if (!State.model) {
+    container.innerHTML = '<div style="padding:24px 16px;color:var(--text3);font-size:12px;text-align:center">连接模型后显示结构树</div>';
+    return;
+  }
+
+  const modelData = State.model;
+  const term = String(State.modelSearch || '').trim().toLowerCase();
+  let tipSeq = 0;
+  function addTip(detail) {
+    const id = 'tip-' + (++tipSeq);
+    State.tooltipMap[id] = detail;
+    return id;
+  }
+
+  const tables = modelData.tables || [];
+  const relationships = modelData.relationships || [];
+  let html = '';
+  const modelTitle = modelData.databaseDisplayName || displayModelName(modelData.databaseName);
+  html += '<div class="tree-node" style="font-weight:700"><span class="tree-icon">▣</span><span class="tree-label">' + esc(modelTitle) + '</span></div>';
+  if (term) {
+    html += '<div class="tree-group" style="text-transform:none;letter-spacing:0">搜索："' + esc(State.modelSearch) + '"</div>';
+  }
+
+  if (State.modelTab === 'tables') {
+    const visibleTables = [];
+    tables.forEach(function(t) {
+      const columns = t.columns || [];
+      const measures = t.measures || [];
+      const tableHit = searchMatches(term, [t.name]);
+      const filteredColumns = term ? columns.filter(function(c) {
+        return tableHit || searchMatches(term, [c.name, c.columnType, c.dataType]);
+      }) : columns;
+      const filteredMeasures = term ? measures.filter(function(ms) {
+        return tableHit || searchMatches(term, [ms.name, ms.displayFolder, ms.expression]);
+      }) : measures;
+      if (term && !tableHit && !filteredColumns.length && !filteredMeasures.length) return;
+      visibleTables.push({
+        table: t,
+        columns: filteredColumns,
+        measures: filteredMeasures
+      });
+    });
+
+    html += '<div class="tree-group">表 (' + visibleTables.length + ')</div>';
+    if (!visibleTables.length) {
+      html += '<div style="padding:10px 16px;color:var(--text3);font-size:12px">' + (term ? '未找到匹配对象' : '当前模型没有表') + '</div>';
+    }
+
+    visibleTables.forEach(function(group) {
+      const t = group.table;
+      const columns = group.columns;
+      const measures = group.measures;
+      const isOpen = term ? true : !!State.expandedTables[t.name];
+      const tableTip = addTip({
+        title: '表',
+        rows: [
+          ['名称', t.name],
+          ['隐藏', t.isHidden ? '是' : '否'],
+          ['字段数', columns.length],
+          ['度量值数', measures.length]
+        ]
+      });
+
+      html += '<div class="tree-node"' + (t.isHidden ? ' style="opacity:.55"' : '') + ' data-action="toggle-table" data-table="' + esc(t.name) + '" data-tip-id="' + tableTip + '" draggable="true" data-insert="' + esc("'" + t.name + "'") + '">' +
+        '<span class="tree-expand' + (isOpen ? ' open' : '') + '">▶</span>' +
+        '<span class="tree-icon">▦</span>' +
+        '<span class="tree-label">' + esc(t.name) + '</span>' +
+        '<span class="tree-count">▤' + columns.length + '</span>' +
+        '<span class="tree-count">∑' + measures.length + '</span>' +
+        '</div>';
+
+      html += '<div class="tree-children' + (isOpen ? ' open' : '') + '">';
+      columns.forEach(function(c) {
+        const colTip = addTip({
+          title: '字段',
+          rows: [
+            ['表', t.name],
+            ['名称', c.name],
+            ['列类型', c.columnType || ''],
+            ['数据类型', c.dataType || ''],
+            ['隐藏', c.isHidden ? '是' : '否']
+          ]
+        });
+        html += '<div class="tree-node tree-col"' + (c.isHidden ? ' style="opacity:.55"' : '') + ' data-tip-id="' + colTip + '" draggable="true" data-insert="' + esc(c.name) + '">' +
+          '<span class="tree-expand leaf">▶</span>' +
+          '<span class="tree-icon">' + esc(columnTypeIcon(c)) + '</span>' +
+          '<span class="tree-label">' + esc(c.name) + '</span>' +
+          '<span class="tree-count">' + esc(c.dataType || '-') + '</span>' +
+          '</div>';
+      });
+
+      measures.forEach(function(ms) {
+        const msTip = addTip({
+          title: '度量值',
+          rows: [
+            ['表', t.name],
+            ['名称', ms.name],
+            ['文件夹', ms.displayFolder || ''],
+            ['格式', ms.formatString || ''],
+            ['隐藏', ms.isHidden ? '是' : '否']
+          ],
+          dax: ms.expression || ''
+        });
+        html += '<div class="tree-node tree-msr"' + (ms.isHidden ? ' style="opacity:.55"' : '') + ' data-tip-id="' + msTip + '" draggable="true" data-insert="' + esc('[' + ms.name + ']') + '">' +
+          '<span class="tree-expand leaf">▶</span>' +
+          '<span class="tree-icon">∑</span>' +
+          '<span class="tree-label">' + esc(ms.name) + '</span>' +
+          '</div>';
+      });
+      html += '</div>';
+    });
+  } else if (State.modelTab === 'relationships') {
+    const visibleRelationships = term
+      ? relationships.filter(function(r) {
+          return searchMatches(term, [r.name, r.fromTable, r.fromColumn, r.toTable, r.toColumn]);
+        })
+      : relationships;
+
+    html += '<div class="tree-group">关系 (' + visibleRelationships.length + ')</div>';
+    if (!visibleRelationships.length) {
+      html += '<div style="padding:10px 16px;color:var(--text3);font-size:12px">' + (term ? '未找到匹配对象' : '当前模型没有关系') + '</div>';
+    }
+
+    visibleRelationships.forEach(function(r) {
+      const relTip = addTip({
+        title: '关系',
+        rows: [
+          ['名称', r.name || ''],
+          ['起点', (r.fromTable || '') + '.' + (r.fromColumn || '')],
+          ['终点', (r.toTable || '') + '.' + (r.toColumn || '')],
+          ['方向', r.crossFilterDirection || ''],
+          ['活动', r.isActive ? '是' : '否']
+        ]
+      });
+      html += '<div class="tree-node" style="font-size:11.8px" data-tip-id="' + relTip + '" draggable="true" data-insert="' + esc((r.name || '').trim() || ((r.fromColumn || '') + ' -> ' + (r.toColumn || ''))) + '">' +
+        '<span class="tree-expand leaf">▶</span>' +
+        '<span class="tree-icon">↔</span>' +
+        '<span class="tree-label">' + esc((r.fromTable || '') + '.' + (r.fromColumn || '') + ' → ' + (r.toTable || '') + '.' + (r.toColumn || '')) + '</span>' +
+        '<span class="tree-count">' + (r.isActive ? '启用' : '停用') + '</span>' +
+        '</div>';
+    });
+  } else {
+    const groupedByTable = [];
+    tables.forEach(function(t) {
+      const seenInTable = new Set();
+      const deduped = [];
+      (t.measures || []).forEach(function(ms) {
+        const key = String(ms.name || '').toLowerCase();
+        if (!key || seenInTable.has(key)) return;
+        seenInTable.add(key);
+        deduped.push(ms);
+      });
+      const filtered = term
+        ? deduped.filter(function(ms) {
+            return searchMatches(term, [t.name, ms.name, ms.displayFolder, ms.expression]);
+          })
+        : deduped;
+      if (!filtered.length) return;
+      const folders = new Map();
+      const folderOrder = [];
+      filtered.forEach(function(ms) {
+        const folderName = String(ms.displayFolder || '').trim();
+        const folderKey = folderName || '__ungrouped__';
+        if (!folders.has(folderKey)) {
+          folders.set(folderKey, { name: folderName || '未分组', measures: [] });
+          folderOrder.push(folderKey);
+        }
+        folders.get(folderKey).measures.push(ms);
+      });
+
+      groupedByTable.push({
+        tableName: t.name,
+        measures: filtered,
+        folders: folders,
+        folderOrder: folderOrder
+      });
+    });
+
+    const allMeasureCount = groupedByTable.reduce(function(sum, t) { return sum + t.measures.length; }, 0);
+    html += '<div class="tree-group">度量值 (' + allMeasureCount + ')</div>';
+    if (!allMeasureCount) {
+      html += '<div style="padding:10px 16px;color:var(--text3);font-size:12px">' + (term ? '未找到匹配对象' : '当前模型没有度量值') + '</div>';
+    }
+
+    groupedByTable.forEach(function(tableGroup) {
+      const tableKey = 'msr-table:' + String(tableGroup.tableName || '').toLowerCase();
+      const tableOpen = term ? true : expandedState(State.expandedMeasureTables, tableKey, true);
+      html += '<div class="tree-node" data-action="toggle-measure-table" data-table="' + esc(tableGroup.tableName) + '" draggable="true" data-insert="' + esc("'" + tableGroup.tableName + "'") + '">' +
+        '<span class="tree-expand' + (tableOpen ? ' open' : '') + '">▶</span>' +
+        '<span class="tree-icon">▤</span>' +
+        '<span class="tree-label">' + esc(tableGroup.tableName) + '</span>' +
+        '<span class="tree-count">∑' + tableGroup.measures.length + '</span>' +
+        '</div>';
+
+      html += '<div class="tree-children' + (tableOpen ? ' open' : '') + '">';
+      tableGroup.folderOrder.forEach(function(folderKey) {
+        const folder = tableGroup.folders.get(folderKey);
+        const folderDataKey = encodeURIComponent(folderKey);
+        const folderStateKey = 'msr-folder:' + String(tableGroup.tableName || '').toLowerCase() + ':' + String(folderKey || '').toLowerCase();
+        const folderOpen = term ? true : expandedState(State.expandedMeasureFolders, folderStateKey, true);
+        html += '<div class="tree-node tree-folder" data-action="toggle-measure-folder" data-table="' + esc(tableGroup.tableName) + '" data-folder="' + folderDataKey + '" draggable="true" data-insert="' + esc(folder.name) + '">' +
+          '<span class="tree-expand' + (folderOpen ? ' open' : '') + '">▶</span>' +
+          '<span class="tree-icon">▢</span>' +
+          '<span class="tree-label">' + esc(folder.name) + '</span>' +
+          '<span class="tree-count">' + folder.measures.length + '</span>' +
+          '</div>';
+        html += '<div class="tree-children' + (folderOpen ? ' open' : '') + '">';
+        folder.measures.forEach(function(ms) {
+          const msTip = addTip({
+            title: '度量值',
+            rows: [
+              ['表', tableGroup.tableName],
+              ['文件夹', ms.displayFolder || ''],
+              ['名称', ms.name],
+              ['格式', ms.formatString || ''],
+              ['隐藏', ms.isHidden ? '是' : '否']
+            ],
+            dax: ms.expression || ''
+          });
+          html += '<div class="tree-node tree-msr-folder"' + (ms.isHidden ? ' style="opacity:.55"' : '') + ' data-tip-id="' + msTip + '" draggable="true" data-insert="' + esc('[' + ms.name + ']') + '">' +
+            '<span class="tree-expand leaf">▶</span>' +
+            '<span class="tree-icon">∑</span>' +
+            '<span class="tree-label">' + esc(ms.name) + '</span>' +
+            '</div>';
+        });
+        html += '</div>';
+      });
+      html += '</div>';
+    });
+  }
+
+  container.innerHTML = html;
+}
+
+document.getElementById('model-tree').addEventListener('click', function(e) {
+  const row = e.target.closest('.tree-node[data-action]');
+  if (!row) return;
+  const action = row.dataset.action || '';
+
+  if (action === 'toggle-table') {
+    const tableName = row.dataset.table || '';
+    if (!tableName) return;
+    State.expandedTables[tableName] = !State.expandedTables[tableName];
+    renderTree(State.model);
+    return;
+  }
+
+  if (action === 'toggle-measure-table') {
+    const tableName = row.dataset.table || '';
+    if (!tableName) return;
+    const key = 'msr-table:' + String(tableName).toLowerCase();
+    State.expandedMeasureTables[key] = !expandedState(State.expandedMeasureTables, key, true);
+    renderTree(State.model);
+    return;
+  }
+
+  if (action === 'toggle-measure-folder') {
+    const tableName = row.dataset.table || '';
+    const folderEncoded = row.dataset.folder || '';
+    if (!tableName) return;
+    const folderKey = decodeURIComponent(folderEncoded);
+    const key = 'msr-folder:' + String(tableName).toLowerCase() + ':' + String(folderKey).toLowerCase();
+    State.expandedMeasureFolders[key] = !expandedState(State.expandedMeasureFolders, key, true);
+    renderTree(State.model);
+    return;
+  }
+
+  renderTree(State.model);
+});
+
+document.getElementById('model-tree').addEventListener('mousemove', function(e) {
+  const target = e.target.closest('[data-tip-id]');
+  if (!target) {
+    hideTreeTooltip();
+    return;
+  }
+
+  const id = target.dataset.tipId;
+  if (!id) {
+    hideTreeTooltip();
+    return;
+  }
+  if (State.activeTooltipId !== id) {
+    showTreeTooltip(id);
+  }
+  positionTreeTooltip(e.clientX, e.clientY);
+});
+
+document.getElementById('model-tree').addEventListener('mouseleave', function() {
+  hideTreeTooltip();
+});
+
+document.getElementById('model-tree').addEventListener('dragstart', function(e) {
+  const row = e.target.closest('.tree-node[data-insert]');
+  if (!row) return;
+  const text = row.dataset.insert || '';
+  if (!text) return;
+  e.dataTransfer.setData('text/plain', text);
+  e.dataTransfer.effectAllowed = 'copy';
+});
+
+// Chat
+let thinkingEl = null;
+function formatText(text) {
+  const source = String(text || '').replace(/\r\n/g, '\n');
+  const parts = [];
+  const fence = /```([\s\S]*?)```/g;
+  let last = 0;
+  let m;
+  while ((m = fence.exec(source)) !== null) {
+    if (m.index > last) {
+      parts.push(renderMarkdownBlocks(source.slice(last, m.index)));
+    }
+    parts.push('<pre><code>' + esc(m[1]) + '</code></pre>');
+    last = m.index + m[0].length;
+  }
+  if (last < source.length) {
+    parts.push(renderMarkdownBlocks(source.slice(last)));
+  }
+  return parts.join('');
+}
+
+function renderMarkdownBlocks(text) {
+  const lines = String(text || '').split('\n');
+  const out = [];
+  let listType = '';
+
+  function closeList() {
+    if (!listType) return;
+    out.push(listType === 'ul' ? '</ul>' : '</ol>');
+    listType = '';
+  }
+
+  lines.forEach(function(raw) {
+    const line = raw || '';
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      closeList();
+      return;
+    }
+
+    const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      closeList();
+      const level = heading[1].length;
+      out.push('<h' + level + '>' + formatInlineMarkdown(heading[2]) + '</h' + level + '>');
+      return;
+    }
+
+    const quote = trimmed.match(/^>\s?(.*)$/);
+    if (quote) {
+      closeList();
+      out.push('<blockquote>' + formatInlineMarkdown(quote[1]) + '</blockquote>');
+      return;
+    }
+
+    const ul = trimmed.match(/^[-*+]\s+(.+)$/);
+    if (ul) {
+      if (listType !== 'ul') {
+        closeList();
+        listType = 'ul';
+        out.push('<ul>');
+      }
+      out.push('<li>' + formatInlineMarkdown(ul[1]) + '</li>');
+      return;
+    }
+
+    const ol = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (ol) {
+      if (listType !== 'ol') {
+        closeList();
+        listType = 'ol';
+        out.push('<ol>');
+      }
+      out.push('<li>' + formatInlineMarkdown(ol[1]) + '</li>');
+      return;
+    }
+
+    closeList();
+    out.push('<p>' + formatInlineMarkdown(trimmed) + '</p>');
+  });
+
+  closeList();
+  return out.join('');
+}
+
+function formatInlineMarkdown(text) {
+  let safe = esc(text || '');
+  const tokens = [];
+  safe = safe.replace(/`([^`]+)`/g, function(_, code) {
+    const idx = tokens.push('<code>' + code + '</code>') - 1;
+    return '\u0000' + idx + '\u0000';
+  });
+  safe = safe.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  safe = safe.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  safe = safe.replace(/(^|[\s(])\*([^*]+)\*(?=[\s).,!?]|$)/g, '$1<em>$2</em>');
+  safe = safe.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  safe = safe.replace(/\u0000(\d+)\u0000/g, function(_, i) {
+    return tokens[parseInt(i, 10)] || '';
+  });
+  return safe;
+}
+function appendMsg(role, text) {
+  const area = document.getElementById('chat-area');
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  if (role === 'system') {
+    div.innerHTML = '<div class="msg-bubble">' + formatText(text) + '</div>';
+  } else {
+    const avatar = role === 'user' ? 'U' : 'A';
+    div.innerHTML = '<div class="msg-avatar">' + avatar + '</div><div class="msg-bubble">' + formatText(text) + '</div>';
+  }
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+}
+
+function appendPlanDetectedMsg(actionCount, autoStarted) {
+  const area = document.getElementById('chat-area');
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+
+  const text = document.createElement('div');
+  text.textContent = autoStarted
+    ? ('📋 检测到 ' + actionCount + ' 项变更计划，已自动发起预检与执行。')
+    : ('📋 检测到 ' + actionCount + ' 项变更计划，可手动跳转到“变更执行”页面处理。');
+  bubble.appendChild(text);
+
+  const row = document.createElement('div');
+  row.className = 'msg-action-row';
+  const btn = document.createElement('button');
+  btn.className = 'topbar-btn msg-action-btn';
+  btn.textContent = '打开变更执行';
+  btn.addEventListener('click', function() {
+    showPage('writeback');
+  });
+  row.appendChild(btn);
+  bubble.appendChild(row);
+
+  div.appendChild(bubble);
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+}
+function showThinking() {
+  const area = document.getElementById('chat-area');
+  thinkingEl = document.createElement('div');
+  thinkingEl.className = 'msg assistant';
+  thinkingEl.innerHTML = '<div class="msg-avatar">A</div><div class="msg-bubble thinking"><span></span><span></span><span></span></div>';
+  area.appendChild(thinkingEl);
+  area.scrollTop = area.scrollHeight;
+}
+function hideThinking() {
+  if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+}
+
+function insertTextAtCursor(el, text) {
+  if (!el || !text) return;
+  const start = Number.isInteger(el.selectionStart) ? el.selectionStart : el.value.length;
+  const end = Number.isInteger(el.selectionEnd) ? el.selectionEnd : el.value.length;
+  const prefix = el.value.slice(0, start);
+  const suffix = el.value.slice(end);
+  const sep = prefix && !/\s$/.test(prefix) ? ' ' : '';
+  const insert = sep + text;
+  el.value = prefix + insert + suffix;
+  const caret = prefix.length + insert.length;
+  el.focus();
+  el.selectionStart = caret;
+  el.selectionEnd = caret;
+  autoResize(el);
+}
+
+// Quick Prompts
+function renderQuickPrompts(prompts) {
+  const container = document.getElementById('quick-prompts');
+  container.innerHTML = '';
+  container.style.display = State.uiPrefs.showQuickPrompts ? 'flex' : 'none';
+  if (!State.uiPrefs.showQuickPrompts) return;
+  const normalized = normalizeQuickPrompts(prompts);
+  const source = normalized.length ? normalized : DEFAULT_QUICK_PROMPTS;
+  source.slice(0,12).forEach(function(p) {
+    const btn = document.createElement('button');
+    btn.className = 'qp-btn';
+    btn.textContent = p.length > 30 ? p.slice(0,28) + '…' : p;
+    btn.title = p;
+    btn.addEventListener('click', function() {
+      document.getElementById('chat-input').value = p;
+      sendChat();
+    });
+    container.appendChild(btn);
+  });
+}
+
+// Send
+function sendChat() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  if (!State.connected) { toast('请先连接到模型', 'warn'); return; }
+  const runtimeSettings = {
+    baseUrl: document.getElementById('s-baseurl').value.trim(),
+    model: document.getElementById('s-model').value.trim(),
+    apiKey: document.getElementById('s-apikey').value.trim(),
+    temperature: parseFloat(document.getElementById('s-temp').value) || 0.3,
+    customSystemPrompt: document.getElementById('s-sysprompt').value.trim(),
+    allowModelChanges: getToggle('ts-allow'),
+    includeHiddenObjects: getToggle('ts-hidden')
+  };
+  input.value = '';
+  autoResize(input);
+  appendMsg('user', text);
+  showThinking();
+  bridge.send('chat', { prompt: text, runtimeSettings: runtimeSettings });
+}
+document.getElementById('btn-send').addEventListener('click', sendChat);
+document.getElementById('chat-input').addEventListener('keydown', function(e) {
+  if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); sendChat(); }
+});
+function autoResize(el) {
+  el.style.height = 'auto';
+  const minHeight = 150;
+  const maxHeight = 374;
+  el.style.height = Math.max(minHeight, Math.min(el.scrollHeight, maxHeight)) + 'px';
+}
+document.getElementById('chat-input').addEventListener('input', function() { autoResize(this); });
+document.getElementById('chat-input').addEventListener('dragover', function(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+  this.classList.add('drag-over');
+});
+document.getElementById('chat-input').addEventListener('dragleave', function() {
+  this.classList.remove('drag-over');
+});
+document.getElementById('chat-input').addEventListener('drop', function(e) {
+  e.preventDefault();
+  this.classList.remove('drag-over');
+  const text = e.dataTransfer.getData('text/plain') || '';
+  insertTextAtCursor(this, text.trim());
+});
+
+// Connect Dialog
+document.getElementById('btn-connect').addEventListener('click', openConnectDialog);
+document.getElementById('conn-cancel').addEventListener('click', function() {
+  document.getElementById('connect-overlay').classList.remove('show');
+});
+document.getElementById('conn-ok').addEventListener('click', doConnect);
+
+function setConnectModeUI(mode) {
+  const next = mode === 'tabular' ? 'tabular' : 'pbi';
+  document.querySelectorAll('.mode-tab').forEach(function(t) { t.classList.toggle('active', t.dataset.mode === next); });
+  document.querySelectorAll('.mode-panel').forEach(function(p) { p.classList.remove('active'); });
+  State.connectMode = next;
+  document.getElementById('panel-' + next).classList.add('active');
+}
+
+document.querySelectorAll('.mode-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    setConnectModeUI(tab.dataset.mode);
+  });
+});
+
+document.getElementById('conn-instances').addEventListener('focus', function() { bridge.send('scan', {}); });
+document.getElementById('conn-instances').addEventListener('change', function() {
+  const port = this.options[this.selectedIndex] ? this.options[this.selectedIndex].dataset.port : '';
+  document.getElementById('conn-port').value = port || '';
+});
+
+['conn-allow-write','conn-allow-write2'].forEach(function(id) {
+  document.getElementById(id).addEventListener('change', function() {
+    const val = this.checked;
+    document.getElementById('conn-allow-write').checked = val;
+    document.getElementById('conn-allow-write2').checked = val;
+  });
+});
+
+function openConnectDialog() {
+  if (State.instances.length === 0) { bridge.send('scan', {}); }
+  document.getElementById('connect-overlay').classList.add('show');
+  document.getElementById('conn-tabular').value = State.uiPrefs.defaultTabularServer || '';
+  setConnectModeUI(State.uiPrefs.defaultConnectMode);
+  document.getElementById('conn-allow-write').checked = State.allowChanges;
+  document.getElementById('conn-allow-write2').checked = State.allowChanges;
+}
+
+function doConnect() {
+  const allowWrite = document.getElementById('conn-allow-write').checked;
+  if (State.connectMode === 'pbi') {
+    const port = document.getElementById('conn-port').value.trim();
+    bridge.send('connect', { mode: 'pbi', port: port, allowWrite: allowWrite });
+  } else {
+    const server = document.getElementById('conn-tabular').value.trim();
+    bridge.send('connect', { mode: 'tabular', server: server, allowWrite: allowWrite });
+  }
+  document.getElementById('connect-overlay').classList.remove('show');
+}
+
+function updateInstances(list) {
+  State.instances = list;
+  const sel = document.getElementById('conn-instances');
+  if (!sel) return;
+  if (list.length) {
+    sel.innerHTML = list.map(function(i) {
+      return '<option value="' + i.port + '" data-port="' + i.port + '">' + esc(i.label) + ' (端口 ' + i.port + ')</option>';
+    }).join('');
+    document.getElementById('conn-port').value = list[0].port;
+  } else {
+    sel.innerHTML = '<option value="">— 未找到实例 —</option>';
+  }
+}
+
+// Writeback
+function renderPlan(plan) {
+  State.pendingPlan = plan;
+  const empty = document.getElementById('plan-empty');
+  const content = document.getElementById('plan-content');
+  const badge = document.getElementById('plan-badge');
+  if (!plan || !plan.actions || plan.actions.length === 0) {
+    empty.style.display = '';
+    content.style.display = 'none';
+    badge.classList.remove('show');
+    return;
+  }
+  empty.style.display = 'none';
+  content.style.display = '';
+  badge.classList.add('show');
+  document.getElementById('plan-title').textContent = plan.summary || '变更计划';
+  document.getElementById('plan-preview-box').textContent = plan.preview || '';
+  const list = document.getElementById('action-list');
+  list.innerHTML = '';
+  plan.actions.forEach(function(a, i) {
+    const item = document.createElement('div');
+    item.className = 'action-item';
+    const target = (a.table && a.name) ? esc(a.table) + ' · ' + esc(a.name) : esc(a.table || a.fromTable || a.name || '');
+    item.innerHTML = '<input type="checkbox" checked data-index="' + i + '">' +
+      '<div class="action-body">' +
+      '<div class="action-type">' + esc(a.type) + '</div>' +
+      '<div class="action-target">' + target + '</div>' +
+      (a.reason ? '<div class="action-reason">' + esc(a.reason) + '</div>' : '') +
+      '</div>';
+    list.appendChild(item);
+  });
+}
+
+function renderPlanHistory(list) {
+  State.planHistory = Array.isArray(list) ? list : [];
+  const empty = document.getElementById('history-empty');
+  const wrap = document.getElementById('history-list');
+  wrap.innerHTML = '';
+
+  if (!State.planHistory.length) {
+    empty.style.display = '';
+    return;
+  }
+
+  empty.style.display = 'none';
+  State.planHistory.forEach(function(item) {
+    const row = document.createElement('div');
+    row.className = 'history-item';
+    const statusClass = item.success === true ? 'ok' : (item.success === false ? 'fail' : '');
+    const statusText = item.success === true ? '成功' : (item.success === false ? '失败' : '记录');
+    const modelText = item.model ? ('模型: ' + item.model) : '';
+    row.innerHTML =
+      '<div class="history-meta">' +
+      '<span>' + esc(item.time || '') + '</span>' +
+      '<span class="history-pill ' + statusClass + '">' + statusText + '</span>' +
+      (item.actionCount > 0 ? ('<span>动作 ' + item.actionCount + '</span>') : '') +
+      (modelText ? ('<span>' + esc(modelText) + '</span>') : '') +
+      '</div>' +
+      '<div class="history-title">' + esc(item.title || '变更记录') + '</div>' +
+      (item.detail ? ('<div class="history-detail">' + escWithBreaks(String(item.detail)) + '</div>') : '');
+    wrap.appendChild(row);
+  });
+}
+
+function syncAutoExecuteCheckbox() {
+  const sw = document.getElementById('wb-auto-switch');
+  if (!sw) return;
+  sw.classList.toggle('on', !!State.uiPrefs.autoExecuteChanges);
+}
+
+function setAutoExecuteEnabled(enabled, persist) {
+  State.uiPrefs.autoExecuteChanges = !!enabled;
+  syncAutoExecuteCheckbox();
+  if (persist !== false) {
+    saveUiPrefs();
+  }
+}
+
+let autoExecPendingEnable = false;
+function showAutoExecConfirm() {
+  autoExecPendingEnable = true;
+  document.getElementById('autoexec-overlay').classList.add('show');
+}
+
+function hideAutoExecConfirm() {
+  autoExecPendingEnable = false;
+  document.getElementById('autoexec-overlay').classList.remove('show');
+}
+
+function selectedActionIndices() {
+  const checked = [];
+  document.querySelectorAll('#action-list input[type=checkbox]').forEach(function(c, i) {
+    if (c.checked) checked.push(i);
+  });
+  return checked;
+}
+
+function allActionIndices(plan) {
+  if (!plan || !Array.isArray(plan.actions)) return [];
+  const out = [];
+  for (let i = 0; i < plan.actions.length; i++) out.push(i);
+  return out;
+}
+
+function executePlanIndices(indices, autoExecute) {
+  if (!indices.length) {
+    toast('请至少选择一个动作', 'warn');
+    return false;
+  }
+  bridge.send('executePlan', {
+    selectedIndices: indices,
+    autoExecute: !!autoExecute
+  });
+  return true;
+}
+
+document.getElementById('btn-check-all').addEventListener('click', function() {
+  document.querySelectorAll('#action-list input[type=checkbox]').forEach(function(c) { c.checked = true; });
+});
+document.getElementById('btn-uncheck-all').addEventListener('click', function() {
+  document.querySelectorAll('#action-list input[type=checkbox]').forEach(function(c) { c.checked = false; });
+});
+document.getElementById('btn-discard-plan').addEventListener('click', function() {
+  bridge.send('discardPlan', {});
+  renderPlan(null);
+});
+document.getElementById('btn-execute').addEventListener('click', function() {
+  executePlanIndices(selectedActionIndices(), !!State.uiPrefs.autoExecuteChanges);
+});
+
+document.getElementById('wb-auto-toggle').addEventListener('click', function() {
+  const next = !State.uiPrefs.autoExecuteChanges;
+  if (next) {
+    showAutoExecConfirm();
+  } else {
+    setAutoExecuteEnabled(false, true);
+  }
+});
+
+document.getElementById('autoexec-cancel').addEventListener('click', function() {
+  hideAutoExecConfirm();
+  syncAutoExecuteCheckbox();
+});
+
+document.getElementById('autoexec-confirm').addEventListener('click', function() {
+  if (!autoExecPendingEnable) return;
+  hideAutoExecConfirm();
+  setAutoExecuteEnabled(true, true);
+});
+
+// Preflight
+function showPreflight(data) {
+  if (data.autoExecute && !data.hasErrors) {
+    return;
+  }
+  const body = document.getElementById('pf-body');
+  const title = document.getElementById('pf-title');
+  const confirmBtn = document.getElementById('pf-confirm');
+  title.textContent = data.hasErrors ? '预检失败 — 无法执行' : (data.warnings && data.warnings.length ? '预检警告' : '预检通过');
+  body.innerHTML = '';
+  (data.infos||[]).forEach(function(m) {
+    body.innerHTML += '<div class="preflight-item info">ℹ️ ' + esc(m) + '</div>';
+  });
+  (data.warnings||[]).forEach(function(m) {
+    body.innerHTML += '<div class="preflight-item warn">⚠️ ' + esc(m) + '</div>';
+  });
+  (data.errors||[]).forEach(function(m) {
+    body.innerHTML += '<div class="preflight-item error">✖ ' + esc(m) + '</div>';
+  });
+  confirmBtn.style.display = data.hasErrors ? 'none' : '';
+  confirmBtn.className = 'dlg-btn ' + (data.warnings && data.warnings.length ? 'danger' : 'primary');
+  document.getElementById('preflight-overlay').classList.add('show');
+}
+document.getElementById('pf-cancel').addEventListener('click', function() {
+  document.getElementById('preflight-overlay').classList.remove('show');
+});
+document.getElementById('pf-confirm').addEventListener('click', function() {
+  document.getElementById('preflight-overlay').classList.remove('show');
+  bridge.send('confirmExecute', {});
+});
+
+// Backups
+function renderBackups(list) {
+  State.backups = list || [];
+  State.selectedBackupPath = null;
+  const tbody = document.getElementById('backup-tbody');
+  tbody.innerHTML = '';
+  State.backups.forEach(function(b) {
+    const tr = document.createElement('tr');
+    const typeClass = b.type === '回滚' ? 'type-rollback' : b.type === '快照' ? 'type-snapshot' : 'type-other';
+    tr.innerHTML = '<td>' + esc(b.time) + '</td><td><span class="type-badge ' + typeClass + '">' + esc(b.type) + '</span></td><td>' + esc(b.name) + '</td><td>' + esc(b.size) + '</td><td style="color:var(--text3);font-size:11px">' + esc(b.dir) + '</td>';
+    tr.dataset.path = b.path;
+    tr.addEventListener('click', function() {
+      document.querySelectorAll('#backup-tbody tr').forEach(function(r) { r.classList.remove('selected'); });
+      tr.classList.add('selected');
+      State.selectedBackupPath = b.path;
+    });
+    tr.addEventListener('dblclick', function() {
+      if (b.type === '回滚') bridge.send('executeRollback', { path: b.path });
+    });
+    tbody.appendChild(tr);
+  });
+}
+document.getElementById('btn-refresh-backups').addEventListener('click', function() { bridge.send('refreshBackups', {}); });
+document.getElementById('btn-open-folder').addEventListener('click', function() { bridge.send('openBackupFolder', {}); });
+document.getElementById('btn-rollback').addEventListener('click', function() {
+  if (!State.selectedBackupPath) { toast('请先选择一个回滚文件', 'warn'); return; }
+  const sel = State.backups.find(function(b) { return b.path === State.selectedBackupPath; });
+  if (!sel || sel.type !== '回滚') { toast('所选文件不是回滚文件', 'warn'); return; }
+  bridge.send('executeRollback', { path: State.selectedBackupPath });
+});
+
+// Settings
+function setToggle(id, val) {
+  const el = document.getElementById(id);
+  if (val) el.classList.add('on'); else el.classList.remove('on');
+}
+function getToggle(id) { return document.getElementById(id).classList.contains('on'); }
+
+const TOGGLE_TARGETS = {
+  'toggle-allow-changes': 'ts-allow',
+  'toggle-include-hidden': 'ts-hidden',
+  'toggle-show-dax': 'ts-show-dax',
+  'toggle-show-quickprompts': 'ts-show-quickprompts'
+};
+
+Object.keys(TOGGLE_TARGETS).forEach(function(id) {
+  document.getElementById(id).addEventListener('click', function() {
+    const target = TOGGLE_TARGETS[id];
+    document.getElementById(target).classList.toggle('on');
+  });
+});
+
+function loadSettings(s) {
+  State.settings = s;
+  const normalizedPrompts = normalizeQuickPrompts(s.quickPrompts);
+  const quickPrompts = normalizedPrompts.length ? normalizedPrompts : DEFAULT_QUICK_PROMPTS;
+  document.getElementById('s-baseurl').value = s.baseUrl || '';
+  document.getElementById('s-model').value = s.model || '';
+  document.getElementById('s-apikey').value = s.apiKey || '';
+  document.getElementById('s-temp').value = s.temperature !== undefined ? s.temperature : 0.3;
+  document.getElementById('s-sysprompt').value = s.customSystemPrompt || '';
+  document.getElementById('s-quickprompts').value = quickPrompts.join('\n');
+  document.getElementById('s-theme').value = State.uiPrefs.theme;
+  document.getElementById('s-default-model-tab').value = State.uiPrefs.defaultModelTab;
+  document.getElementById('s-default-connect-mode').value = State.uiPrefs.defaultConnectMode;
+  document.getElementById('s-default-tabular-server').value = State.uiPrefs.defaultTabularServer;
+  setToggle('ts-allow', s.allowModelChanges);
+  setToggle('ts-hidden', s.includeHiddenObjects);
+  setToggle('ts-show-dax', State.uiPrefs.showDaxInTooltip);
+  setToggle('ts-show-quickprompts', State.uiPrefs.showQuickPrompts);
+  State.allowChanges = s.allowModelChanges;
+  State.aiModel = s.model || '';
+  State.connectMode = State.uiPrefs.defaultConnectMode;
+  document.getElementById('conn-tabular').value = State.uiPrefs.defaultTabularServer || '';
+  updateChips();
+  renderQuickPrompts(quickPrompts);
+  syncAutoExecuteCheckbox();
+}
+
+function collectSettingsFromUI() {
+  return {
+    baseUrl: document.getElementById('s-baseurl').value.trim(),
+    model: document.getElementById('s-model').value.trim(),
+    apiKey: document.getElementById('s-apikey').value.trim(),
+    temperature: parseFloat(document.getElementById('s-temp').value) || 0.3,
+    customSystemPrompt: document.getElementById('s-sysprompt').value.trim(),
+    quickPrompts: document.getElementById('s-quickprompts').value.split('\n').map(function(l){return l.trim();}).filter(Boolean).slice(0,12),
+    allowModelChanges: getToggle('ts-allow'),
+    includeHiddenObjects: getToggle('ts-hidden')
+  };
+}
+
+function setSaveButtonBusy(busy) {
+  const btn = document.getElementById('btn-save-settings');
+  if (!btn) return;
+  btn.disabled = !!busy;
+  btn.textContent = busy ? '保存中...' : '保存设置';
+}
+
+function setTestButtonBusy(busy) {
+  const btn = document.getElementById('btn-test-settings');
+  if (!btn) return;
+  btn.disabled = !!busy;
+  btn.textContent = busy ? '测试中...' : '测试连接';
+}
+
+document.getElementById('btn-test-settings').addEventListener('click', function() {
+  try {
+    const s = collectSettingsFromUI();
+    setTestButtonBusy(true);
+    bridge.send('testConnection', {
+      baseUrl: s.baseUrl,
+      model: s.model,
+      apiKey: s.apiKey,
+      temperature: s.temperature
+    });
+  } catch (err) {
+    setTestButtonBusy(false);
+    toast('测试连接失败: ' + err.message, 'error');
+  }
+});
+
+document.getElementById('btn-save-settings').addEventListener('click', function() {
+  setSaveButtonBusy(true);
+  try {
+  const s = collectSettingsFromUI();
+
+  State.uiPrefs = normalizeUiPrefs({
+    theme: document.getElementById('s-theme').value,
+    defaultModelTab: document.getElementById('s-default-model-tab').value,
+    defaultConnectMode: document.getElementById('s-default-connect-mode').value,
+    defaultTabularServer: document.getElementById('s-default-tabular-server').value.trim(),
+    showDaxInTooltip: getToggle('ts-show-dax'),
+    showQuickPrompts: getToggle('ts-show-quickprompts'),
+    autoExecuteChanges: State.uiPrefs.autoExecuteChanges
+  });
+  saveUiPrefs();
+  applyTheme(State.uiPrefs.theme, false);
+  setModelTab(State.uiPrefs.defaultModelTab);
+  State.connectMode = State.uiPrefs.defaultConnectMode;
+  document.getElementById('conn-tabular').value = State.uiPrefs.defaultTabularServer || '';
+  renderQuickPrompts(s.quickPrompts);
+
+  bridge.send('saveSettings', s);
+  } catch (err) {
+    setSaveButtonBusy(false);
+    toast('保存失败: ' + err.message, 'error');
+  }
+});
+
+// Message Handler
+const App = {
+  handle: function(msg) {
+    switch (msg.type) {
+      case 'init':
+        loadSettings(msg.payload.settings || {});
+        if (msg.payload.instances) updateInstances(msg.payload.instances);
+        break;
+      case 'connected':
+        State.connected = true;
+        State.dbName = msg.payload.dbName;
+        State.allowChanges = msg.payload.allowChanges;
+        State.expandedTables = {};
+        updateChips();
+        renderTree(msg.payload.model);
+        appendMsg('system', '✅ 已连接到模型: ' + msg.payload.dbName);
+        toast('连接成功', 'success');
+        break;
+      case 'disconnected':
+        State.connected = false;
+        State.dbName = '';
+        State.expandedTables = {};
+        updateChips();
+        renderTree(null);
+        break;
+            case 'instances':
+        updateInstances(msg.payload.instances || []);
+        if ((msg.payload.instances || []).length > 0) {
+          toast('已找到 ' + msg.payload.instances.length + ' 个实例', 'info');
+        } else {
+          toast('未找到 Power BI 实例，请先打开 PBIX 文件', 'warn');
+        }
+        break;
+      case 'chatReply':
+        hideThinking();
+        appendMsg('assistant', msg.payload.text);
+        break;
+      case 'chatError':
+        hideThinking();
+        appendMsg('system', '❌ AI 请求失败: ' + msg.payload.error);
+        toast('AI 请求失败', 'error');
+        break;
+      case 'planDetected':
+        renderPlan(msg.payload);
+        if (State.uiPrefs.autoExecuteChanges) {
+          appendPlanDetectedMsg(msg.payload.actions.length, true);
+          executePlanIndices(allActionIndices(msg.payload), true);
+        } else {
+          appendPlanDetectedMsg(msg.payload.actions.length, false);
+        }
+        break;
+      case 'preflight':
+        showPreflight(msg.payload);
+        break;
+      case 'executeSuccess':
+        renderPlan(null);
+        appendMsg('system', '✅ 执行完成:\n' + (msg.payload.results||[]).join('\n'));
+        toast('执行成功', 'success');
+        showPage('dashboard');
+        break;
+      case 'executeError':
+        appendMsg('system', '❌ 执行失败: ' + msg.payload.error);
+        toast('执行失败', 'error');
+        break;
+      case 'backups':
+        renderBackups(msg.payload.list || []);
+        break;
+      case 'planHistory':
+        renderPlanHistory(msg.payload.list || []);
+        break;
+      case 'settingsSaved':
+        loadSettings(msg.payload);
+        setSaveButtonBusy(false);
+        toast('设置已保存', 'success');
+        break;
+      case 'settingsSaveFailed':
+        setSaveButtonBusy(false);
+        toast('保存失败: ' + (msg.payload.error || '未知错误'), 'error');
+        break;
+      case 'testConnectionDone':
+        setTestButtonBusy(false);
+        break;
+      case 'status':
+        toast(msg.payload.text, msg.payload.level || 'info');
+        break;
+      case 'log':
+        appendMsg('system', msg.payload.text);
+        break;
+    }
+  }
+};
+
+State.uiPrefs = loadUiPrefs();
+initTheme();
+setModelTab(State.uiPrefs.defaultModelTab);
+setSettingsSection('ai');
+setConnectModeUI(State.uiPrefs.defaultConnectMode);
+document.getElementById('conn-tabular').value = State.uiPrefs.defaultTabularServer || '';
+renderQuickPrompts(DEFAULT_QUICK_PROMPTS);
+renderPlanHistory([]);
+syncAutoExecuteCheckbox();
+autoResize(document.getElementById('chat-input'));
+
+// Init — wait for WebView2 channel to be ready
+function sendReady() {
+  if (window.chrome && window.chrome.webview) {
+    bridge.send('ready', {});
+  } else {
+    setTimeout(sendReady, 50);
+  }
+}
+sendReady();
+</script>
+</body>
+</html>

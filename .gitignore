@@ -1,0 +1,21 @@
+# Build artifacts
+**/bin/
+**/obj/
+*.user
+*.suo
+
+# Runtime/debug temp
+.temp_claude/
+*.log
+
+# Output bundles
+dist/*
+!dist/updated-exe-v17/
+dist/updated-exe-v17/*
+!dist/updated-exe-v17/PBIClaw.exe
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
