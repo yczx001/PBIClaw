@@ -73,6 +73,7 @@ internal sealed class AppBridge
                 case "refreshBackups":  OnRefreshBackups(); break;
                 case "openBackupFolder": OnOpenBackupFolder(); break;
                 case "saveSettings": OnSaveSettings(payload); break;
+                case "markStartupGuideSeen": OnMarkStartupGuideSeen(); break;
             }
         }
         catch (Exception ex)
@@ -507,6 +508,24 @@ internal sealed class AppBridge
         }
     }
 
+    private void OnMarkStartupGuideSeen()
+    {
+        try
+        {
+            if (!_settings.ShowStartupGuide)
+            {
+                return;
+            }
+
+            _settings.ShowStartupGuide = false;
+            _settingsStore.Save(_settings);
+        }
+        catch
+        {
+            // Ignore onboarding persistence failures.
+        }
+    }
+
     private void AppendPlanHistory(string kind, string title, string detail, int actionCount = 0, bool? success = null)
     {
         _planHistory.Insert(0, new PlanHistoryEntry
@@ -790,7 +809,8 @@ internal sealed class AppBridge
         customSystemPrompt = s.CustomSystemPrompt,
         allowModelChanges = s.AllowModelChanges,
         includeHiddenObjects = s.IncludeHiddenObjects,
-        quickPrompts = s.QuickPrompts.ToArray()
+        quickPrompts = s.QuickPrompts.ToArray(),
+        showStartupGuide = s.ShowStartupGuide
     };
 
     private static AbiAssistantSettings BuildSettingsFromPayload(JsonObject? p, AbiAssistantSettings current)
@@ -804,6 +824,7 @@ internal sealed class AppBridge
             CustomSystemPrompt = p?["customSystemPrompt"]?.GetValue<string>()?.Trim() ?? current.CustomSystemPrompt,
             AllowModelChanges = p?["allowModelChanges"]?.GetValue<bool>() ?? current.AllowModelChanges,
             IncludeHiddenObjects = p?["includeHiddenObjects"]?.GetValue<bool>() ?? current.IncludeHiddenObjects,
+            ShowStartupGuide = p?["showStartupGuide"]?.GetValue<bool>() ?? current.ShowStartupGuide,
             QuickPrompts = p?["quickPrompts"]?.AsArray()
                 .Select(n => n?.GetValue<string>() ?? string.Empty)
                 .Where(s => !string.IsNullOrWhiteSpace(s))

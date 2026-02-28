@@ -22,4 +22,6 @@ internal sealed class AbiAssistantSettings
         "基于现有模型给出 5 个高价值度量值建议（含 DAX）。",
         "解释当前选中对象的业务含义与使用建议。"
     ];
+
+    public bool ShowStartupGuide { get; set; } = true;
 }

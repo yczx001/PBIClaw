@@ -257,6 +257,39 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 #autoexec-dialog .dlg-body { padding: 16px 20px; font-size: 12.5px; color: var(--text2); line-height: 1.65; }
 #autoexec-dialog .dlg-footer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
 
+/* ── Startup guide ── */
+#onboarding-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 320; backdrop-filter: blur(4px); }
+#onboarding-overlay.show { display: flex; }
+#onboarding-dialog { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; width: 700px; max-width: calc(100vw - 36px); display: flex; flex-direction: column; overflow: hidden; }
+#onboarding-dialog .dlg-header { padding: 16px 20px; border-bottom: 1px solid var(--border); font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+#onboarding-dialog .dlg-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; }
+.onb-page { display: none; flex-direction: column; gap: 14px; }
+.onb-page.active { display: flex; }
+.onb-tip { font-size: 12.5px; color: var(--text2); line-height: 1.6; }
+.onb-group { display: flex; flex-direction: column; gap: 8px; }
+.onb-label { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.onb-theme-row { display: flex; gap: 8px; }
+.onb-theme-item { flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--surface2); color: var(--text2); font-size: 12.5px; font-family: var(--font); cursor: pointer; transition: all .15s; text-align: left; }
+.onb-theme-item:hover { border-color: var(--accent); color: var(--text); }
+.onb-theme-item.active { border-color: var(--accent); background: rgba(79,142,247,.1); color: var(--accent); font-weight: 600; }
+.onb-preview-row { display: flex; gap: 10px; }
+.onb-preview-card { flex: 1; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface2); cursor: pointer; transition: all .15s; }
+.onb-preview-card:hover { border-color: var(--accent); }
+.onb-preview-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(79,142,247,.35) inset; }
+.onb-preview-head { padding: 8px 10px; font-size: 12px; font-weight: 600; border-bottom: 1px solid transparent; }
+.onb-preview-body { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.onb-bar { height: 12px; border-radius: 6px; background: rgba(79,142,247,.4); width: 54%; }
+.onb-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.onb-cell { height: 30px; border-radius: 7px; }
+.onb-preview-dark .onb-preview-head { background: #141925; border-bottom-color: #2d3650; color: #e2e8f0; }
+.onb-preview-dark .onb-preview-body { background: #1b2131; }
+.onb-preview-dark .onb-cell { background: #2a334b; border: 1px solid #3a4562; }
+.onb-preview-light .onb-preview-head { background: #f5f8ff; border-bottom-color: #d7deef; color: #25314b; }
+.onb-preview-light .onb-preview-body { background: #ffffff; }
+.onb-preview-light .onb-cell { background: #eef3ff; border: 1px solid #d7deef; }
+#onb-ai-actions { display: flex; justify-content: flex-end; gap: 8px; }
+#onboarding-dialog .dlg-footer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+
 /* ── Connect dialog ── */
 #connect-overlay { position: fixed; inset: 0; padding: 18px; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 200; backdrop-filter: blur(4px); }
 #connect-overlay.show { display: flex; }
@@ -688,6 +721,72 @@ select.setting-input { cursor: pointer; }
   </div>
 </div>
 
+<!-- Startup Guide -->
+<div id="onboarding-overlay">
+  <div id="onboarding-dialog">
+    <div class="dlg-header">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4.2L18 21l-6-4-6 4 1.5-7.8L2 9h7z"/></svg>
+      初次使用引导
+    </div>
+    <div class="dlg-body">
+      <div class="onb-page active" data-onb-step="1">
+        <div class="onb-tip">请选择界面主题。点击后将立即切换预览效果，类似 Visual Studio 的主题切换体验。</div>
+        <div class="onb-group">
+          <div class="onb-label">主题模式</div>
+          <div class="onb-theme-row">
+            <button class="onb-theme-item active" data-onb-theme="dark">深色模式</button>
+            <button class="onb-theme-item" data-onb-theme="light">浅色模式</button>
+          </div>
+        </div>
+        <div class="onb-group">
+          <div class="onb-label">效果预览</div>
+          <div class="onb-preview-row">
+            <div class="onb-preview-card onb-preview-dark active" data-onb-theme="dark">
+              <div class="onb-preview-head">深色预览</div>
+              <div class="onb-preview-body">
+                <div class="onb-bar"></div>
+                <div class="onb-grid">
+                  <div class="onb-cell"></div>
+                  <div class="onb-cell"></div>
+                  <div class="onb-cell"></div>
+                  <div class="onb-cell"></div>
+                </div>
+              </div>
+            </div>
+            <div class="onb-preview-card onb-preview-light" data-onb-theme="light">
+              <div class="onb-preview-head">浅色预览</div>
+              <div class="onb-preview-body">
+                <div class="onb-bar"></div>
+                <div class="onb-grid">
+                  <div class="onb-cell"></div>
+                  <div class="onb-cell"></div>
+                  <div class="onb-cell"></div>
+                  <div class="onb-cell"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="onb-page" data-onb-step="2">
+        <div class="onb-tip">
+          下一步建议配置 AI（API Key + 模型）。<br>
+          配置后可直接进行智能问答、模型分析和变更建议。<br>
+          不配置时仍可连接模型和浏览元数据，但 AI 对话相关能力不可用。
+        </div>
+        <div id="onb-ai-actions">
+          <button class="dlg-btn primary" id="onb-config-ai">配置AI</button>
+          <button class="dlg-btn" id="onb-skip">跳过</button>
+        </div>
+      </div>
+    </div>
+    <div class="dlg-footer">
+      <button class="dlg-btn primary" id="onb-next">下一步</button>
+    </div>
+  </div>
+</div>
+
 <div id="tree-tooltip" class="tree-tooltip"></div>
 <div id="toast-container"></div>
 <script>
@@ -708,6 +807,12 @@ const State = {
   selectedBackupPath: null, connectMode: 'pbi',
   model: null, modelTab: 'tables', modelSearch: '', expandedTables: {}, expandedMeasureTables: {}, expandedMeasureFolders: {},
   tooltipMap: {}, activeTooltipId: null, theme: 'dark',
+  onboarding: {
+    displayed: false,
+    active: false,
+    step: 1,
+    themeChoice: 'dark'
+  },
   uiPrefs: {
     theme: 'dark',
     defaultModelTab: 'tables',
@@ -850,6 +955,98 @@ function initTheme() {
 
 document.getElementById('btn-theme').addEventListener('click', function() {
   applyTheme(State.theme === 'dark' ? 'light' : 'dark', true);
+});
+
+function setOnboardingStep(step) {
+  const next = step === 2 ? 2 : 1;
+  State.onboarding.step = next;
+  document.querySelectorAll('.onb-page').forEach(function(page) {
+    page.classList.toggle('active', Number(page.dataset.onbStep) === next);
+  });
+  document.getElementById('onb-next').style.display = next === 1 ? '' : 'none';
+}
+
+function setOnboardingThemeChoice(theme, applyPreview) {
+  const next = theme === 'light' ? 'light' : 'dark';
+  State.onboarding.themeChoice = next;
+
+  document.querySelectorAll('.onb-theme-item').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.onbTheme === next);
+  });
+  document.querySelectorAll('.onb-preview-card').forEach(function(card) {
+    card.classList.toggle('active', card.dataset.onbTheme === next);
+  });
+
+  if (applyPreview !== false) {
+    applyTheme(next, false);
+  }
+}
+
+function persistOnboardingTheme() {
+  const selectedTheme = State.onboarding.themeChoice === 'light' ? 'light' : 'dark';
+  State.uiPrefs = normalizeUiPrefs({
+    theme: selectedTheme,
+    defaultModelTab: State.uiPrefs.defaultModelTab,
+    defaultConnectMode: State.uiPrefs.defaultConnectMode,
+    defaultTabularServer: State.uiPrefs.defaultTabularServer,
+    showDaxInTooltip: State.uiPrefs.showDaxInTooltip,
+    showQuickPrompts: State.uiPrefs.showQuickPrompts,
+    autoExecuteChanges: State.uiPrefs.autoExecuteChanges
+  });
+  saveUiPrefs();
+  applyTheme(selectedTheme, false);
+  document.getElementById('s-theme').value = selectedTheme;
+}
+
+function showStartupGuide() {
+  if (State.onboarding.active) return;
+  State.onboarding.active = true;
+  State.onboarding.displayed = true;
+  setOnboardingStep(1);
+  setOnboardingThemeChoice(State.uiPrefs.theme || 'dark', true);
+  document.getElementById('onboarding-overlay').classList.add('show');
+  bridge.send('markStartupGuideSeen', {});
+}
+
+function hideStartupGuide() {
+  State.onboarding.active = false;
+  document.getElementById('onboarding-overlay').classList.remove('show');
+}
+
+function maybeShowStartupGuide() {
+  if (State.onboarding.displayed) return;
+  if (!State.settings || State.settings.showStartupGuide === false) return;
+  showStartupGuide();
+}
+
+function finishStartupGuide(openAiSettings) {
+  persistOnboardingTheme();
+  hideStartupGuide();
+  if (openAiSettings) {
+    showPage('settings');
+    setSettingsSection('ai');
+    const apiInput = document.getElementById('s-apikey');
+    if (apiInput) apiInput.focus();
+    toast('请在“AI 引擎”中完成 API Key 与模型配置。', 'info');
+  }
+}
+
+document.querySelectorAll('.onb-theme-item,.onb-preview-card').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    setOnboardingThemeChoice(btn.dataset.onbTheme, true);
+  });
+});
+
+document.getElementById('onb-next').addEventListener('click', function() {
+  setOnboardingStep(2);
+});
+
+document.getElementById('onb-config-ai').addEventListener('click', function() {
+  finishStartupGuide(true);
+});
+
+document.getElementById('onb-skip').addEventListener('click', function() {
+  finishStartupGuide(false);
 });
 
 // Model tabs
@@ -1980,6 +2177,7 @@ const App = {
       case 'init':
         loadSettings(msg.payload.settings || {});
         if (msg.payload.instances) updateInstances(msg.payload.instances);
+        maybeShowStartupGuide();
         break;
       case 'connected':
         State.connected = true;
