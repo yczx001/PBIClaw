@@ -1,5 +1,5 @@
 {
-  "name": "PBI Claw v0.0.0.0",
+  "name": "PBI Claw",
   "description": "Power BI AI assistant: connect model, chat with metadata context, and export model json",
   "path": "PBIClaw.exe",
   "arguments": "--server \"%server%\" --database \"%database%\" --external-tool",

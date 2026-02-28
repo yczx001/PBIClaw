@@ -8,65 +8,47 @@ namespace PBIClawSetup;
 
 internal static class Program
 {
+    private const string ToolExeName = "PBIClaw.exe";
+    private const string ToolJsonName = "PBIClaw.pbitool.json";
+    private const string ToolDisplayName = "PBI Claw";
+    private const string ToolArguments = "--server \"%server%\" --database \"%database%\" --external-tool";
+
     [STAThread]
     private static int Main(string[] args)
     {
         try
         {
-            var forceMachine = args.Any(a => string.Equals(a, "--machine", StringComparison.OrdinalIgnoreCase));
-            var forceUser = args.Any(a => string.Equals(a, "--user", StringComparison.OrdinalIgnoreCase));
-
-            if (forceMachine && forceUser)
+            var options = ParseArgs(args);
+            if (options.ShowHelp)
             {
-                MessageBox.Show(
-                    "Cannot use --machine and --user together.",
+                ShowUsage();
+                return 0;
+            }
+
+            var installDir = ResolveInstallDirectory(options.InstallDir);
+            if (string.IsNullOrWhiteSpace(installDir))
+            {
+                return 0;
+            }
+
+            if (!IsAdministrator())
+            {
+                var relaunch = MessageBox.Show(
+                    "安装会把外部工具配置写入系统目录，需要管理员权限。\n\n点击“是”继续提权安装，点击“否”取消。",
                     "PBI Claw 安装程序",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
-                return 1;
-            }
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
 
-            if (forceMachine)
-            {
-                return InstallMachine();
-            }
+                if (relaunch != DialogResult.Yes)
+                {
+                    return 1;
+                }
 
-            if (forceUser)
-            {
-                InstallToDirectory(GetUserTargetDir());
-                ShowSuccess(GetUserTargetDir(), "User");
+                RelaunchAsAdmin($"--machine --install-dir \"{installDir}\"");
                 return 0;
             }
 
-            // Default behavior: prefer machine-wide install so Power BI can discover the tool reliably.
-            if (IsAdministrator())
-            {
-                return InstallMachine();
-            }
-
-            var relaunch = MessageBox.Show(
-                "Administrator permission is recommended for machine-wide install.\n\n" +
-                "Click Yes to relaunch setup as Administrator.\n" +
-                "Click No to install for current user only.",
-                "PBI Claw 安装程序",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question);
-
-            if (relaunch == DialogResult.Yes)
-            {
-                RelaunchAsAdmin("--machine");
-                return 0;
-            }
-
-            var userDir = GetUserTargetDir();
-            InstallToDirectory(userDir);
-            ShowSuccess(userDir, "User");
-            MessageBox.Show(
-                "If the tool is not visible in Power BI, rerun setup as Administrator and choose machine-wide install.",
-                "PBI Claw 安装程序",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
-
+            InstallMachine(installDir);
             return 0;
         }
         catch (Exception ex)
@@ -80,7 +62,7 @@ internal static class Program
         }
     }
 
-    private static int InstallMachine()
+    private static int InstallMachine(string installDir)
     {
         if (!IsAdministrator())
         {
@@ -92,46 +74,84 @@ internal static class Program
             return 1;
         }
 
-        var targets = GetMachineTargetDirs();
-        foreach (var dir in targets)
+        Directory.CreateDirectory(installDir);
+        var exePath = Path.Combine(installDir, ToolExeName);
+        ExtractEmbeddedResource($"Payload.{ToolExeName}", exePath);
+
+        var toolModel = LoadPbiToolModel(exePath);
+
+        var externalToolDirs = GetMachineExternalToolDirs();
+        foreach (var externalToolDir in externalToolDirs)
         {
-            InstallToDirectory(dir);
+            Directory.CreateDirectory(externalToolDir);
+            var jsonPath = Path.Combine(externalToolDir, ToolJsonName);
+            WritePbiToolJson(jsonPath, toolModel);
         }
 
-        ShowSuccess(string.Join(Environment.NewLine, targets), "Machine");
+        ShowSuccess(installDir, externalToolDirs);
         return 0;
     }
 
-    private static void InstallToDirectory(string targetDir)
+    private static string? ResolveInstallDirectory(string? fromArgs)
     {
-        Directory.CreateDirectory(targetDir);
+        if (!string.IsNullOrWhiteSpace(fromArgs))
+        {
+            return Path.GetFullPath(Environment.ExpandEnvironmentVariables(fromArgs));
+        }
 
-        var exePath = Path.Combine(targetDir, "PBIClaw.exe");
-        var jsonPath = Path.Combine(targetDir, "PBIClaw.pbitool.json");
+        var defaultDir = GetDefaultInstallDir();
+        var startPath = defaultDir;
+        if (!Directory.Exists(startPath))
+        {
+            var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            if (!string.IsNullOrWhiteSpace(programFiles))
+            {
+                startPath = programFiles;
+            }
+        }
 
-        ExtractEmbeddedResource("Payload.PBIClaw.exe", exePath);
-        ExtractEmbeddedResource("Payload.PBIClaw.pbitool.json", jsonPath);
-        NormalizePbiToolJson(jsonPath, exePath);
+        using var dialog = new FolderBrowserDialog
+        {
+            Description = "选择 PBI Claw 可执行文件安装目录",
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = true,
+            SelectedPath = defaultDir,
+            InitialDirectory = startPath
+        };
+
+        if (dialog.ShowDialog() != DialogResult.OK)
+        {
+            return null;
+        }
+
+        return Path.GetFullPath(dialog.SelectedPath);
     }
 
-    private static void ShowSuccess(string target, string scope)
+    private static void ShowSuccess(string installDir, IReadOnlyList<string> externalToolDirs)
     {
+        var directories = string.Join(Environment.NewLine, externalToolDirs);
         MessageBox.Show(
-            $"Install completed.\n\nScope: {scope}\nTarget:\n{target}\n\nRestart Power BI Desktop, then open External Tools and click PBI Claw.",
+            "安装完成。\n\n" +
+            $"EXE 路径:\n{installDir}\n\n" +
+            $"外部工具配置已写入:\n{directories}\n\n" +
+            "请重启 Power BI Desktop，然后在 External Tools 中点击 PBI Claw。",
             "PBI Claw 安装程序",
             MessageBoxButtons.OK,
             MessageBoxIcon.Information);
     }
 
-    private static string GetUserTargetDir()
+    private static string GetDefaultInstallDir()
     {
-        return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-            "Power BI Desktop",
-            "External Tools");
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        if (string.IsNullOrWhiteSpace(programFiles))
+        {
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), ToolDisplayName);
+        }
+
+        return Path.Combine(programFiles, ToolDisplayName);
     }
 
-    private static IReadOnlyList<string> GetMachineTargetDirs()
+    private static IReadOnlyList<string> GetMachineExternalToolDirs()
     {
         var dirs = new List<string>();
 
@@ -151,6 +171,35 @@ internal static class Program
             .Where(d => !string.IsNullOrWhiteSpace(d))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static Dictionary<string, object?> LoadPbiToolModel(string exePath)
+    {
+        using var stream = FindResourceStream($"Payload.{ToolJsonName}");
+        using var reader = new StreamReader(stream);
+        var json = reader.ReadToEnd();
+        using var doc = JsonDocument.Parse(json);
+
+        var root = doc.RootElement;
+        var model = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var prop in root.EnumerateObject())
+        {
+            model[prop.Name] = ReadValue(prop.Value);
+        }
+
+        model["name"] = ToolDisplayName;
+        model["path"] = exePath;
+        model["arguments"] = ToolArguments;
+        return model;
+    }
+
+    private static void WritePbiToolJson(string jsonPath, Dictionary<string, object?> model)
+    {
+        var normalized = JsonSerializer.Serialize(model, new JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+        File.WriteAllText(jsonPath, normalized);
     }
 
     private static bool IsAdministrator()
@@ -195,30 +244,72 @@ internal static class Program
         return fallback;
     }
 
-    private static void NormalizePbiToolJson(string jsonPath, string exePath)
+    private static InstallOptions ParseArgs(string[] args)
     {
-        var json = File.ReadAllText(jsonPath);
-        using var doc = JsonDocument.Parse(json);
+        string? installDir = null;
+        var showHelp = false;
 
-        var root = doc.RootElement;
-        var model = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
-        foreach (var prop in root.EnumerateObject())
+        for (var i = 0; i < args.Length; i++)
         {
-            model[prop.Name] = ReadValue(prop.Value);
+            var arg = args[i];
+            if (string.Equals(arg, "--machine", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (string.Equals(arg, "--help", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(arg, "-h", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(arg, "/?", StringComparison.OrdinalIgnoreCase))
+            {
+                showHelp = true;
+                continue;
+            }
+
+            if (arg.StartsWith("--install-dir=", StringComparison.OrdinalIgnoreCase))
+            {
+                installDir = arg.Substring("--install-dir=".Length).Trim().Trim('"');
+                continue;
+            }
+
+            if (string.Equals(arg, "--install-dir", StringComparison.OrdinalIgnoreCase))
+            {
+                if (i + 1 >= args.Length)
+                {
+                    throw new ArgumentException("Missing value for --install-dir");
+                }
+
+                installDir = args[++i].Trim().Trim('"');
+                continue;
+            }
         }
 
-        model["path"] = exePath;
-        if (!model.ContainsKey("name"))
-        {
-            model["name"] = "PBI Claw";
-        }
+        return new InstallOptions(installDir, showHelp);
+    }
 
-        var normalized = JsonSerializer.Serialize(model, new JsonSerializerOptions
-        {
-            WriteIndented = true
-        });
+    private static void ShowUsage()
+    {
+        MessageBox.Show(
+            "Usage:\n" +
+            "PBIClawSetup.exe [--install-dir \"C:\\\\Path\\\\To\\\\Folder\"]\n\n" +
+            "安装时会自动把 PBIClaw.pbitool.json 写入两个系统 External Tools 目录。",
+            "PBI Claw 安装程序",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Information);
+    }
 
-        File.WriteAllText(jsonPath, normalized);
+    private sealed record InstallOptions(string? InstallDir, bool ShowHelp);
+
+    private static object? ReadValue(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString(),
+            JsonValueKind.Number => element.TryGetInt64(out var i) ? i : element.GetDouble(),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Null => null,
+            _ => element.GetRawText()
+        };
     }
 
     private static void RelaunchAsAdmin(string args)
@@ -238,18 +329,5 @@ internal static class Program
         };
 
         Process.Start(info);
-    }
-
-    private static object? ReadValue(JsonElement element)
-    {
-        return element.ValueKind switch
-        {
-            JsonValueKind.String => element.GetString(),
-            JsonValueKind.Number => element.TryGetInt64(out var i) ? i : element.GetDouble(),
-            JsonValueKind.True => true,
-            JsonValueKind.False => false,
-            JsonValueKind.Null => null,
-            _ => element.GetRawText()
-        };
     }
 }

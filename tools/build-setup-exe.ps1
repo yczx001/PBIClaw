@@ -76,7 +76,7 @@ Copy-Item $toolJsonTemplate $payloadJson -Force
 $json = Get-Content $payloadJson -Raw | ConvertFrom-Json
 $json.path = "PBIClaw.exe"
 $json.version = $Version
-$json.name = "PBI Claw v$Version"
+$json.name = "PBI Claw"
 if (-not [string]::IsNullOrWhiteSpace($json.iconData) -and $json.iconData -notmatch '^[a-z]+/[a-z0-9+.-]+;base64,') {
     $json.iconData = "image/png;base64,$($json.iconData.Trim())"
 }
@@ -109,9 +109,9 @@ Write-Host "Setup EXE created:"
 Write-Host $setupExe
 Write-Host "Tool version: $Version"
 Write-Host ""
-Write-Host "Double-click setup exe to install for current user."
-Write-Host "For machine-wide install, run:"
-Write-Host "`"$setupExe`" --machine"
+Write-Host "Double-click setup exe, choose EXE install folder, then allow Administrator permission."
+Write-Host "Optional silent style argument:"
+Write-Host "`"$setupExe`" --install-dir `"C:\Program Files\PBI Claw`""
 
 if (-not $KeepIntermediates) {
     if (Test-Path $toolPublishDir) {

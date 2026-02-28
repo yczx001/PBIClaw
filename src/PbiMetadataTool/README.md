@@ -29,9 +29,16 @@ Output:
 ## Install
 
 1. Double-click `dist\setup\PBIClawSetup.exe`
-2. Restart Power BI Desktop
-3. Open `External Tools` and click `PBI Claw v<version>`
-4. In the UI, click `连接`，然后即可对话或导出元数据
+2. Select the install directory for `PBIClaw.exe`
+3. Allow Administrator permission when prompted
+4. Restart Power BI Desktop
+5. Open `External Tools` and click `PBI Claw`
+6. In the UI, click `连接`，然后即可对话或导出元数据
+
+The installer writes `PBIClaw.pbitool.json` to both machine-level External Tools paths:
+
+- `%CommonProgramFiles%\Microsoft Shared\Power BI Desktop\External Tools`
+- `%CommonProgramFiles(x86)%\Microsoft Shared\Power BI Desktop\External Tools`
 
 ## Debug Mode (No Reinstall)
 
@@ -54,10 +61,10 @@ Standalone debug run:
 
 - `调试启动ABI助手.bat`
 
-Machine-wide install:
+Optional install directory argument:
 
 ```powershell
-.\dist\setup\PBIClawSetup.exe --machine
+.\dist\setup\PBIClawSetup.exe --install-dir "C:\Program Files\PBI Claw"
 ```
 
 ## Uninstall
