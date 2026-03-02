@@ -11,7 +11,7 @@ internal sealed class PowerBiInstanceDetector
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static readonly Regex PbixPathRegex = new(
-        "(?:\"(?<pbix>[^\"]+\\.(?:pbix|pbit))\"|(?<pbix>\\S+\\.(?:pbix|pbit)))",
+        "(?:\"(?<pbix>[^\"]+\\.(?:pbix|pbit|pbip))\"|(?<pbix>\\S+\\.(?:pbix|pbit|pbip)))",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static readonly Regex IniPortRegex = new(

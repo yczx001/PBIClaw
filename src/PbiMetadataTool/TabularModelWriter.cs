@@ -126,7 +126,10 @@ internal sealed class TabularModelWriter
                     AnalyzeDeleteRelationship(database, action, infos, warnings, errors);
                     break;
                 default:
-                    errors.Add($"不支持的动作类型: {action.Type}");
+                    if (!TabularExtendedActionHandler.TryAnalyze(database, action, infos, warnings, errors))
+                    {
+                        errors.Add($"不支持的动作类型: {action.Type}");
+                    }
                     break;
             }
         }
@@ -289,7 +292,9 @@ internal sealed class TabularModelWriter
             "delete_measure" => ApplyDeleteMeasure(database, action, results),
             "create_relationship" => ApplyCreateRelationship(database, action, results),
             "delete_relationship" => ApplyDeleteRelationship(database, action, results),
-            _ => HandleUnsupportedAction(type, results)
+            _ => TabularExtendedActionHandler.TryApply(database, action, results)
+                ? true
+                : HandleUnsupportedAction(type, results)
         };
     }
 

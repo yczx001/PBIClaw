@@ -41,13 +41,32 @@ internal static class MetadataPromptBuilder
   }
 }
 ```
-支持的 type 仅限：
-- create_or_update_measure（创建或更新度量值）
-- delete_measure（删除度量值）
-- create_relationship（创建关系）
-- delete_relationship（删除关系）
+支持的 type：
+- create_or_update_measure / delete_measure
+- create_relationship / delete_relationship
+- delete_table
+- rename_table / rename_column / rename_measure
+- set_table_hidden / set_column_hidden / set_measure_hidden
+- set_format_string / set_display_folder
+- create_calculated_column / delete_column
+- create_calculated_table
+- set_relationship_active / set_relationship_cross_filter
+- update_description（objectType 支持 table/column/measure/role）
+- create_role / update_role / delete_role
+- set_role_table_permission / remove_role_table_permission
+- add_role_member / remove_role_member
 
-delete_relationship 可用 name 定位，或用 fromTable/fromColumn/toTable/toColumn 定位。
+字段约定：
+- rename_* 使用 `newName`
+- set_*_hidden 使用 `isHidden`
+- set_format_string 使用 `formatString`
+- set_display_folder 使用 `displayFolder`
+- create_calculated_* 使用 `expression`
+- set_relationship_active 使用 `isActive`
+- set_relationship_cross_filter 使用 `crossFilterDirection`
+- 角色相关：`name` 为角色名，成员使用 `memberName`，表权限可用 `expression`(RLS筛选) 与 `metadataPermission`
+
+关系定位可用 name，或用 fromTable/fromColumn/toTable/toColumn。
 如果用户没有明确要求变更，不要输出 abi_action_plan。
 如果用户要求变更但信息不完整（如未指定表名），先询问缺失信息，不要猜测输出。
 """;
@@ -68,7 +87,7 @@ delete_relationship 可用 name 定位，或用 fromTable/fromColumn/toTable/toC
         return prompt;
     }
 
-    public static string BuildModelContext(ModelMetadata metadata, bool includeHiddenObjects)
+    public static string BuildModelContext(ModelMetadata metadata, bool includeHiddenObjects, ReportMetadata? report = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine("以下是当前 Power BI 模型上下文：");
@@ -76,6 +95,7 @@ delete_relationship 可用 name 定位，或用 fromTable/fromColumn/toTable/toC
         sb.AppendLine($"兼容级别: {metadata.CompatibilityLevel}");
         sb.AppendLine($"表数量: {metadata.Tables.Count}");
         sb.AppendLine($"关系数量: {metadata.Relationships.Count}");
+        sb.AppendLine($"角色数量: {metadata.Roles.Count}");
         sb.AppendLine();
 
         foreach (var table in metadata.Tables.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase))
@@ -114,6 +134,52 @@ delete_relationship 可用 name 定位，或用 fromTable/fromColumn/toTable/toC
         foreach (var relationship in metadata.Relationships.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase))
         {
             sb.AppendLine($"- {relationship.FromTable}.{relationship.FromColumn} -> {relationship.ToTable}.{relationship.ToColumn} | {relationship.CrossFilterDirection} | {(relationship.IsActive ? "Active" : "Inactive")}");
+        }
+
+        if (metadata.Roles.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("角色:");
+            foreach (var role in metadata.Roles.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                sb.AppendLine($"- 角色: {role.Name} | 模型权限: {role.ModelPermission}");
+                if (!string.IsNullOrWhiteSpace(role.Description))
+                {
+                    sb.AppendLine($"  说明: {role.Description}");
+                }
+
+                foreach (var member in role.Members)
+                {
+                    var memberType = string.IsNullOrWhiteSpace(member.MemberType) ? string.Empty : $" | 类型: {member.MemberType}";
+                    var provider = string.IsNullOrWhiteSpace(member.IdentityProvider) ? string.Empty : $" | 身份源: {member.IdentityProvider}";
+                    sb.AppendLine($"  - 成员: {member.Name}{memberType}{provider}");
+                }
+
+                foreach (var permission in role.TablePermissions)
+                {
+                    var filter = string.IsNullOrWhiteSpace(permission.FilterExpression) ? "(空)" : permission.FilterExpression;
+                    var metadataPermission = string.IsNullOrWhiteSpace(permission.MetadataPermission) ? string.Empty : $" | 元数据权限: {permission.MetadataPermission}";
+                    sb.AppendLine($"  - 表权限: {permission.TableName}{metadataPermission} | 过滤: {filter}");
+                }
+            }
+        }
+
+        if (report is not null)
+        {
+            sb.AppendLine();
+            sb.AppendLine("报表前端信息:");
+            sb.AppendLine($"- 来源类型: {report.SourceType}");
+            sb.AppendLine($"- 报表页数量: {report.Pages.Count}");
+            foreach (var page in report.Pages.Take(30))
+            {
+                var pageName = string.IsNullOrWhiteSpace(page.DisplayName) ? page.Name : page.DisplayName;
+                sb.AppendLine($"[报表页] {pageName} | 视觉对象: {page.Visuals.Count}");
+                foreach (var visual in page.Visuals.Take(40))
+                {
+                    var title = string.IsNullOrWhiteSpace(visual.Title) ? "(无标题)" : visual.Title;
+                    sb.AppendLine($"  - 视觉对象: {visual.VisualType} | 标题: {title} | 名称: {visual.Name}");
+                }
+            }
         }
 
         return sb.ToString();

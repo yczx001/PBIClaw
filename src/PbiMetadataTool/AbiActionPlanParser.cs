@@ -26,9 +26,9 @@ internal static class AbiActionPlanParser
         return false;
     }
 
-    public static bool TryParseJsonText(string jsonText, out AbiActionPlan plan, out string error)
+    public static bool TryParseJsonText(string jsonText, out AbiActionPlan plan, out string error, bool allowEmptyActions = false)
     {
-        if (TryParseFromJson(jsonText, out plan, out _, out error))
+        if (TryParseFromJson(jsonText, out plan, out _, out error, allowEmptyActions))
         {
             return true;
         }
@@ -36,7 +36,7 @@ internal static class AbiActionPlanParser
         return false;
     }
 
-    private static bool TryParseFromJson(string json, out AbiActionPlan plan, out string preview, out string error)
+    private static bool TryParseFromJson(string json, out AbiActionPlan plan, out string preview, out string error, bool allowEmptyActions = false)
     {
         try
         {
@@ -45,14 +45,14 @@ internal static class AbiActionPlanParser
             var payload = root;
 
             if (root.ValueKind == JsonValueKind.Object &&
-                root.TryGetProperty("abi_action_plan", out var nestedPlan) &&
+                TryGetPropertyIgnoreCase(root, "abi_action_plan", out var nestedPlan) &&
                 nestedPlan.ValueKind == JsonValueKind.Object)
             {
                 payload = nestedPlan;
             }
 
             if (payload.ValueKind != JsonValueKind.Object ||
-                !payload.TryGetProperty("actions", out var actionsElement) ||
+                !TryGetPropertyIgnoreCase(payload, "actions", out var actionsElement) ||
                 actionsElement.ValueKind != JsonValueKind.Array)
             {
                 plan = new AbiActionPlan(string.Empty, []);
@@ -61,7 +61,7 @@ internal static class AbiActionPlanParser
                 return false;
             }
 
-            var summary = payload.TryGetProperty("summary", out var summaryElement)
+            var summary = TryGetPropertyIgnoreCase(payload, "summary", out var summaryElement)
                 ? summaryElement.GetString() ?? string.Empty
                 : string.Empty;
 
@@ -84,8 +84,19 @@ internal static class AbiActionPlanParser
                     Reason: GetString(item, "reason"),
                     Table: GetString(item, "table"),
                     Name: GetString(item, "name"),
+                    NewName: GetString(item, "newName"),
                     Expression: GetString(item, "expression"),
                     FormatString: GetString(item, "formatString"),
+                    DisplayFolder: GetString(item, "displayFolder"),
+                    Description: GetString(item, "description"),
+                    ObjectType: GetString(item, "objectType"),
+                    DataType: GetString(item, "dataType"),
+                    ModelPermission: GetString(item, "modelPermission"),
+                    MetadataPermission: GetString(item, "metadataPermission"),
+                    MemberName: GetString(item, "memberName"),
+                    IdentityProvider: GetString(item, "identityProvider"),
+                    MemberType: GetString(item, "memberType"),
+                    Operation: GetString(item, "operation"),
                     IsHidden: GetBool(item, "isHidden"),
                     FromTable: GetString(item, "fromTable"),
                     FromColumn: GetString(item, "fromColumn"),
@@ -97,6 +108,14 @@ internal static class AbiActionPlanParser
 
             if (actions.Count == 0)
             {
+                if (allowEmptyActions)
+                {
+                    plan = new AbiActionPlan(summary, []);
+                    preview = AbiActionPlanPreview.BuildText(plan);
+                    error = string.Empty;
+                    return true;
+                }
+
                 plan = new AbiActionPlan(string.Empty, []);
                 preview = string.Empty;
                 error = "actions 为空，无法执行。";
@@ -119,7 +138,7 @@ internal static class AbiActionPlanParser
 
     private static string? GetString(JsonElement element, string name)
     {
-        if (!element.TryGetProperty(name, out var value))
+        if (!TryGetPropertyIgnoreCase(element, name, out var value))
         {
             return null;
         }
@@ -136,7 +155,7 @@ internal static class AbiActionPlanParser
 
     private static bool? GetBool(JsonElement element, string name)
     {
-        if (!element.TryGetProperty(name, out var value))
+        if (!TryGetPropertyIgnoreCase(element, name, out var value))
         {
             return null;
         }
@@ -158,5 +177,31 @@ internal static class AbiActionPlanParser
         }
 
         return null;
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement element, string propertyName, out JsonElement value)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            value = default;
+            return false;
+        }
+
+        if (element.TryGetProperty(propertyName, out value))
+        {
+            return true;
+        }
+
+        foreach (var property in element.EnumerateObject())
+        {
+            if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
     }
 }

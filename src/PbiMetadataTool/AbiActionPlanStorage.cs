@@ -21,14 +21,18 @@ internal static class AbiActionPlanStorage
             }
         };
 
-        var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+        var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        });
         File.WriteAllText(path, json);
     }
 
     public static AbiActionPlan Load(string path)
     {
         var text = File.ReadAllText(path);
-        if (!AbiActionPlanParser.TryParseJsonText(text, out var plan, out var error))
+        if (!AbiActionPlanParser.TryParseJsonText(text, out var plan, out var error, allowEmptyActions: true))
         {
             throw new InvalidOperationException(error);
         }

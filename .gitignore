@@ -9,10 +9,7 @@
 *.log
 
 # Output bundles
-dist/*
-!dist/updated-exe-v17/
-dist/updated-exe-v17/*
-!dist/updated-exe-v17/PBIClaw.exe
+dist/
 
 # OS/editor
 .DS_Store

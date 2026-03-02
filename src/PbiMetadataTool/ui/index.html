@@ -182,10 +182,17 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 #backup-table td { padding: 9px 12px; font-size: 12.5px; border-bottom: 1px solid rgba(46,51,80,.5); }
 #backup-table tr:hover td { background: var(--surface2); }
 #backup-table tr.selected td { background: rgba(79,142,247,.08); }
+#backup-table tr.rollback-blocked td { opacity: .78; }
+.backup-summary { max-width: 360px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
 .type-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
 .type-rollback { background: rgba(239,68,68,.1); color: var(--danger); border: 1px solid rgba(239,68,68,.25); }
 .type-snapshot { background: rgba(34,197,94,.1); color: var(--success); border: 1px solid rgba(34,197,94,.25); }
 .type-other { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
+.rb-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; border: 1px solid var(--border); }
+.rb-ready { background: rgba(34,197,94,.12); color: var(--success); border-color: rgba(34,197,94,.35); }
+.rb-pending { background: rgba(245,158,11,.12); color: var(--warning); border-color: rgba(245,158,11,.35); }
+.rb-blocked { background: rgba(239,68,68,.12); color: var(--danger); border-color: rgba(239,68,68,.35); }
+.rb-na { background: var(--surface2); color: var(--text3); }
 
 /* ── Settings Page ── */
 #page-settings { padding: 20px; overflow-y: auto; justify-content: center; align-items: flex-start; }
@@ -214,10 +221,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .toggle-text { flex: 1; }
 .toggle-title { font-size: 13px; font-weight: 600; }
 .toggle-sub { font-size: 11.5px; color: var(--text2); margin-top: 1px; }
-.save-btn { align-self: flex-start; padding: 8px 24px; border-radius: 8px; border: none; background: var(--accent); color: #fff; font-family: var(--font); font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s; }
+.save-btn { padding: 8px 24px; border-radius: 8px; border: none; background: var(--accent); color: #fff; font-family: var(--font); font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s; }
 .save-btn:hover { background: #6ba3ff; }
 .save-btn:disabled { opacity: .65; cursor: not-allowed; }
-.settings-actions { display: flex; align-items: center; gap: 8px; }
+.settings-actions { display: flex; justify-content: flex-start; align-items: center; gap: 8px; margin-top: 4px; }
 .setting-credit { margin-top: 4px; font-size: 11px; color: var(--text3); }
 .setting-credit a { color: inherit; text-decoration: none; }
 .setting-credit a:hover { color: var(--accent); }
@@ -227,6 +234,9 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .about-text a { color: var(--accent); text-decoration: none; }
 .about-text a:hover { text-decoration: underline; }
 .about-ai-note { font-size: 12.5px; color: var(--text); font-family: 'Segoe UI Variable', 'Microsoft YaHei UI', sans-serif; font-weight: 600; letter-spacing: .35px; }
+.about-top-row { display: flex; align-items: center; justify-content: flex-start; gap: 6px; flex-wrap: wrap; }
+.about-version { font-size: 15px; font-weight: 700; color: var(--text); }
+.about-update-actions { display: flex; align-items: center; gap: 6px; }
 @media (max-width: 920px) {
   .settings-layout { flex-direction: column; }
   .settings-nav { width: 100%; flex-direction: row; flex-wrap: wrap; }
@@ -268,10 +278,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .onb-tip { font-size: 12.5px; color: var(--text2); line-height: 1.6; }
 .onb-group { display: flex; flex-direction: column; gap: 8px; }
 .onb-label { font-size: 12.5px; font-weight: 600; color: var(--text); }
-.onb-theme-row { display: flex; gap: 8px; }
-.onb-theme-item { flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--surface2); color: var(--text2); font-size: 12.5px; font-family: var(--font); cursor: pointer; transition: all .15s; text-align: left; }
-.onb-theme-item:hover { border-color: var(--accent); color: var(--text); }
-.onb-theme-item.active { border-color: var(--accent); background: rgba(79,142,247,.1); color: var(--accent); font-weight: 600; }
 .onb-preview-row { display: flex; gap: 10px; }
 .onb-preview-card { flex: 1; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface2); cursor: pointer; transition: all .15s; }
 .onb-preview-card:hover { border-color: var(--accent); }
@@ -332,6 +338,9 @@ select.setting-input { cursor: pointer; }
 .tree-msr { padding-left: 32px; }
 .tree-folder { padding-left: 28px; font-size: 12px; }
 .tree-msr-folder { padding-left: 46px; }
+.tree-role { padding-left: 20px; }
+.tree-role-member { padding-left: 38px; }
+.tree-role-perm { padding-left: 38px; font-size: 12px; }
 
 /* ── Tooltip ── */
 .tree-tooltip { position: fixed; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 11.5px; color: var(--text); max-width: 520px; z-index: 500; pointer-events: none; box-shadow: 0 4px 16px rgba(0,0,0,.25); line-height: 1.6; display: none; }
@@ -418,9 +427,10 @@ select.setting-input { cursor: pointer; }
           <div class="model-tab active" data-tab="tables">表</div>
           <div class="model-tab" data-tab="relationships">关系</div>
           <div class="model-tab" data-tab="measures">度量值</div>
+          <div class="model-tab" data-tab="roles">角色</div>
         </div>
         <div id="model-search-wrap">
-          <input id="model-search" placeholder="搜索表/字段/关系/度量值..." autocomplete="off">
+          <input id="model-search" placeholder="搜索表/字段/关系/度量值/角色..." autocomplete="off">
         </div>
         <div id="model-tree">
           <div style="padding:24px 16px;color:var(--text3);font-size:12px;text-align:center">连接模型后显示结构树</div>
@@ -490,18 +500,19 @@ select.setting-input { cursor: pointer; }
     <div class="page" id="page-backups">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
         <h2 style="font-size:16px;font-weight:700">备份与回滚</h2>
-        <div class="topbar-spacer"></div>
-        <button class="topbar-btn" id="btn-refresh-backups">刷新</button>
-        <button class="topbar-btn" id="btn-open-folder">打开目录</button>
-        <button class="topbar-btn primary" id="btn-rollback">执行回滚</button>
       </div>
       <div class="card" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
         <div style="overflow-y:auto;flex:1">
           <table id="backup-table">
-            <thead><tr><th>时间</th><th>类型</th><th>文件名</th><th>大小</th><th>路径</th></tr></thead>
+            <thead><tr><th>时间</th><th>类型</th><th>回滚状态</th><th>变更概述</th><th>文件名</th><th>大小</th><th>路径</th></tr></thead>
             <tbody id="backup-tbody"></tbody>
           </table>
         </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">
+        <button class="topbar-btn" id="btn-refresh-backups">刷新</button>
+        <button class="topbar-btn" id="btn-open-folder">打开目录</button>
+        <button class="topbar-btn primary" id="btn-rollback">执行回滚</button>
       </div>
     </div>
 
@@ -521,6 +532,13 @@ select.setting-input { cursor: pointer; }
             <div class="setting-group">
               <div class="setting-group-title">AI 引擎</div>
               <div class="setting-row">
+                <div class="setting-label">协议</div>
+                <select class="setting-input" id="s-provider">
+                  <option value="openai">OpenAI 兼容</option>
+                  <option value="anthropic">Claude (Anthropic)</option>
+                </select>
+              </div>
+              <div class="setting-row">
                 <div class="setting-label">Base URL</div>
                 <input class="setting-input" id="s-baseurl" placeholder="https://api.openai.com/v1">
               </div>
@@ -535,6 +553,7 @@ select.setting-input { cursor: pointer; }
               <div class="setting-row">
                 <div class="setting-label">Temperature</div>
                 <input class="setting-input" id="s-temp" type="number" min="0" max="2" step="0.05" style="width:120px">
+                <div class="setting-desc">控制回答随机性。值越低越稳定，值越高越发散；常用建议 0.1-0.7。</div>
               </div>
             </div>
           </div>
@@ -559,6 +578,7 @@ select.setting-input { cursor: pointer; }
                   <option value="tables">表</option>
                   <option value="relationships">关系</option>
                   <option value="measures">度量值</option>
+                  <option value="roles">角色</option>
                 </select>
               </div>
             </div>
@@ -594,6 +614,13 @@ select.setting-input { cursor: pointer; }
                   <option value="light">浅色</option>
                 </select>
               </div>
+              <div class="setting-row">
+                <div class="setting-label">发送快捷键</div>
+                <select class="setting-input" id="s-send-shortcut">
+                  <option value="ctrl_enter">Ctrl + Enter 发送</option>
+                  <option value="enter">Enter 发送（Shift + Enter 换行）</option>
+                </select>
+              </div>
               <div class="setting-toggle" id="toggle-show-dax">
                 <div class="toggle-switch" id="ts-show-dax"><div class="toggle-knob"></div></div>
                 <div class="toggle-text">
@@ -606,6 +633,20 @@ select.setting-input { cursor: pointer; }
                 <div class="toggle-text">
                   <div class="toggle-title">显示快捷问题按钮</div>
                   <div class="toggle-sub">控制输入框上方快捷问题是否显示</div>
+                </div>
+              </div>
+              <div class="setting-toggle" id="toggle-show-startup-guide">
+                <div class="toggle-switch" id="ts-show-startup-guide"><div class="toggle-knob"></div></div>
+                <div class="toggle-text">
+                  <div class="toggle-title">启动时显示引导页</div>
+                  <div class="toggle-sub">首次使用默认开启，可按需手动再次启用</div>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-label">手动打开引导页</div>
+                <div class="setting-desc">立即打开主题和 AI 配置引导，不影响当前连接状态。</div>
+                <div>
+                  <button class="topbar-btn" id="btn-open-startup-guide">打开引导页</button>
                 </div>
               </div>
             </div>
@@ -630,9 +671,17 @@ select.setting-input { cursor: pointer; }
               <div class="setting-group-title">关于</div>
               <div class="about-card">
                 <div class="about-title">PBI Claw</div>
-                <div class="about-text">面向 Power BI 建模场景的桌面助手，提供从模型查看到 AI 分析再到变更执行的完整闭环。</div>
-                <div class="about-text">技术架构：.NET 8 + WinForms + WebView2，前端基于 HTML/CSS/JavaScript，后端通过 TOM 读取与写回模型元数据。</div>
-                <div class="about-text">功能覆盖：模型连接、表/关系/度量值浏览、对象详情与 DAX 悬浮查看、AI 计划生成、预检执行与备份回滚。</div>
+                <div class="about-top-row">
+                  <div class="about-version">版本：<span id="about-version">-</span></div>
+                  <div class="about-update-actions">
+                    <button class="topbar-btn" id="btn-check-update">检测更新</button>
+                    <button class="topbar-btn primary" id="btn-upgrade-now" style="display:none">一键升级</button>
+                  </div>
+                </div>
+                <div class="about-text">定位：面向 Power BI 建模场景的桌面助手，覆盖模型浏览、AI 分析、变更预检执行与备份回滚。</div>
+                <div class="about-text">技术架构：.NET 8 + WinForms + WebView2；前端采用 HTML/CSS/JavaScript；后端通过 TOM 读取与写回模型元数据。</div>
+                <div class="about-text">核心能力：外部工具启动自动连接当前模型、表/关系/度量值/角色多页签浏览、报表页与视觉对象上下文、变更历史、更新检测与一键升级。</div>
+                <div class="setting-desc" id="about-update-status">未检测更新</div>
                 <div class="about-text">网址：<a href="https://pbihub.cn/" target="_blank" rel="noopener noreferrer">https://pbihub.cn/</a></div>
                 <div class="about-text">作者：施阳</div>
                 <div class="about-ai-note">本项目完全由AI实现</div>
@@ -642,8 +691,8 @@ select.setting-input { cursor: pointer; }
 
           <div class="settings-actions">
             <button class="topbar-btn" id="btn-test-settings">测试连接</button>
-            <button class="save-btn" id="btn-save-settings">保存设置</button>
           </div>
+
         </div>
       </div>
     </div>
@@ -730,16 +779,9 @@ select.setting-input { cursor: pointer; }
     </div>
     <div class="dlg-body">
       <div class="onb-page active" data-onb-step="1">
-        <div class="onb-tip">请选择界面主题。点击后将立即切换预览效果，类似 Visual Studio 的主题切换体验。</div>
+        <div class="onb-tip">请选择界面主题。点击后将立即切换预览效果。</div>
         <div class="onb-group">
-          <div class="onb-label">主题模式</div>
-          <div class="onb-theme-row">
-            <button class="onb-theme-item active" data-onb-theme="dark">深色模式</button>
-            <button class="onb-theme-item" data-onb-theme="light">浅色模式</button>
-          </div>
-        </div>
-        <div class="onb-group">
-          <div class="onb-label">效果预览</div>
+          <div class="onb-label">主题预览（点击切换）</div>
           <div class="onb-preview-row">
             <div class="onb-preview-card onb-preview-dark active" data-onb-theme="dark">
               <div class="onb-preview-head">深色预览</div>
@@ -802,10 +844,13 @@ window.chrome.webview.addEventListener('message', e => {
 
 // State
 const State = {
-  connected: false, dbName: '', allowChanges: false, aiModel: '',
+  connected: false, dbName: '', allowChanges: false, aiModel: '', aiProvider: 'openai',
   instances: [], pendingPlan: null, backups: [], settings: {}, planHistory: [],
   selectedBackupPath: null, connectMode: 'pbi',
-  model: null, modelTab: 'tables', modelSearch: '', expandedTables: {}, expandedMeasureTables: {}, expandedMeasureFolders: {},
+  instanceScanInProgress: false, instanceScanToastPending: false,
+  appVersion: '1.0.0',
+  updateInfo: null,
+  model: null, modelTab: 'tables', modelSearch: '', expandedTables: {}, expandedMeasureTables: {}, expandedMeasureFolders: {}, expandedRoles: {},
   tooltipMap: {}, activeTooltipId: null, theme: 'dark',
   onboarding: {
     displayed: false,
@@ -818,17 +863,54 @@ const State = {
     defaultModelTab: 'tables',
     defaultConnectMode: 'pbi',
     defaultTabularServer: '',
+    sendShortcut: 'ctrl_enter',
     showDaxInTooltip: true,
     showQuickPrompts: true,
     autoExecuteChanges: false
   }
 };
+let lastSettingsSavedToastAt = 0;
 
 const DEFAULT_QUICK_PROMPTS = [
   '分析当前模型并给出3个优化建议和可执行步骤。',
   '检查模型中的关系和命名规范，指出问题并给出修正建议。',
   '识别可能影响性能的度量值并给出优化思路。'
 ];
+
+const AI_PROVIDER_PRESETS = {
+  openai: {
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-4.1-mini',
+    apiKeyPlaceholder: 'sk-...'
+  },
+  anthropic: {
+    baseUrl: 'https://api.anthropic.com/v1',
+    model: 'claude-3-7-sonnet-latest',
+    apiKeyPlaceholder: 'sk-ant-...'
+  }
+};
+
+function normalizeProvider(provider) {
+  return provider === 'anthropic' ? 'anthropic' : 'openai';
+}
+
+function applyAiProviderUI(provider, fillDefaultsWhenEmpty) {
+  const next = normalizeProvider(provider);
+  const preset = AI_PROVIDER_PRESETS[next];
+  const providerEl = document.getElementById('s-provider');
+  const baseUrlEl = document.getElementById('s-baseurl');
+  const modelEl = document.getElementById('s-model');
+  const apiKeyEl = document.getElementById('s-apikey');
+  if (providerEl) providerEl.value = next;
+  if (baseUrlEl) baseUrlEl.placeholder = preset.baseUrl;
+  if (modelEl) modelEl.placeholder = preset.model;
+  if (apiKeyEl) apiKeyEl.placeholder = preset.apiKeyPlaceholder;
+
+  if (fillDefaultsWhenEmpty) {
+    if (baseUrlEl && !String(baseUrlEl.value || '').trim()) baseUrlEl.value = preset.baseUrl;
+    if (modelEl && !String(modelEl.value || '').trim()) modelEl.value = preset.model;
+  }
+}
 
 const UI_PREFS_KEY = 'abi-ui-prefs';
 const VOLATILE_STORAGE = {};
@@ -855,13 +937,14 @@ function storageSet(key, value) {
 function normalizeUiPrefs(raw) {
   const src = raw || {};
   const theme = src.theme === 'light' ? 'light' : 'dark';
-  const defaultModelTab = (src.defaultModelTab === 'relationships' || src.defaultModelTab === 'measures') ? src.defaultModelTab : 'tables';
+  const defaultModelTab = (src.defaultModelTab === 'relationships' || src.defaultModelTab === 'measures' || src.defaultModelTab === 'roles') ? src.defaultModelTab : 'tables';
   const defaultConnectMode = src.defaultConnectMode === 'tabular' ? 'tabular' : 'pbi';
   const defaultTabularServer = String(src.defaultTabularServer || '').trim();
+  const sendShortcut = src.sendShortcut === 'enter' ? 'enter' : 'ctrl_enter';
   const showDaxInTooltip = src.showDaxInTooltip !== false;
   const showQuickPrompts = src.showQuickPrompts !== false;
   const autoExecuteChanges = src.autoExecuteChanges === true;
-  return { theme, defaultModelTab, defaultConnectMode, defaultTabularServer, showDaxInTooltip, showQuickPrompts, autoExecuteChanges };
+  return { theme, defaultModelTab, defaultConnectMode, defaultTabularServer, sendShortcut, showDaxInTooltip, showQuickPrompts, autoExecuteChanges };
 }
 
 function loadUiPrefs() {
@@ -970,9 +1053,6 @@ function setOnboardingThemeChoice(theme, applyPreview) {
   const next = theme === 'light' ? 'light' : 'dark';
   State.onboarding.themeChoice = next;
 
-  document.querySelectorAll('.onb-theme-item').forEach(function(btn) {
-    btn.classList.toggle('active', btn.dataset.onbTheme === next);
-  });
   document.querySelectorAll('.onb-preview-card').forEach(function(card) {
     card.classList.toggle('active', card.dataset.onbTheme === next);
   });
@@ -998,14 +1078,16 @@ function persistOnboardingTheme() {
   document.getElementById('s-theme').value = selectedTheme;
 }
 
-function showStartupGuide() {
+function showStartupGuide(markSeen) {
   if (State.onboarding.active) return;
   State.onboarding.active = true;
   State.onboarding.displayed = true;
   setOnboardingStep(1);
   setOnboardingThemeChoice(State.uiPrefs.theme || 'dark', true);
   document.getElementById('onboarding-overlay').classList.add('show');
-  bridge.send('markStartupGuideSeen', {});
+  if (markSeen) {
+    bridge.send('markStartupGuideSeen', {});
+  }
 }
 
 function hideStartupGuide() {
@@ -1016,7 +1098,7 @@ function hideStartupGuide() {
 function maybeShowStartupGuide() {
   if (State.onboarding.displayed) return;
   if (!State.settings || State.settings.showStartupGuide === false) return;
-  showStartupGuide();
+  showStartupGuide(true);
 }
 
 function finishStartupGuide(openAiSettings) {
@@ -1031,7 +1113,7 @@ function finishStartupGuide(openAiSettings) {
   }
 }
 
-document.querySelectorAll('.onb-theme-item,.onb-preview-card').forEach(function(btn) {
+document.querySelectorAll('.onb-preview-card').forEach(function(btn) {
   btn.addEventListener('click', function() {
     setOnboardingThemeChoice(btn.dataset.onbTheme, true);
   });
@@ -1049,9 +1131,13 @@ document.getElementById('onb-skip').addEventListener('click', function() {
   finishStartupGuide(false);
 });
 
+document.getElementById('btn-open-startup-guide').addEventListener('click', function() {
+  showStartupGuide(false);
+});
+
 // Model tabs
 function setModelTab(tab) {
-  const next = tab === 'relationships' || tab === 'measures' ? tab : 'tables';
+  const next = tab === 'relationships' || tab === 'measures' || tab === 'roles' ? tab : 'tables';
   State.modelTab = next;
   document.querySelectorAll('.model-tab').forEach(function(el) {
     el.classList.toggle('active', el.dataset.tab === next);
@@ -1079,12 +1165,24 @@ function setSettingsSection(section) {
   document.querySelectorAll('.settings-panel').forEach(function(panel) {
     panel.classList.toggle('active', panel.dataset.settingsSection === next);
   });
+  const testBtn = document.getElementById('btn-test-settings');
+  if (testBtn) {
+    testBtn.style.display = next === 'ai' ? '' : 'none';
+  }
 }
 
 document.querySelectorAll('.settings-nav-btn').forEach(function(btn) {
   btn.addEventListener('click', function() {
     setSettingsSection(btn.dataset.settingsNav);
   });
+});
+
+document.getElementById('s-provider').addEventListener('change', function() {
+  const provider = normalizeProvider(this.value);
+  State.aiProvider = provider;
+  applyAiProviderUI(provider, true);
+  applyUiPrefsFromSettingsPanel();
+  scheduleAutoSaveSettings(120);
 });
 
 // Chips
@@ -1369,7 +1467,7 @@ function renderTree(model) {
         '<span class="tree-count">' + (r.isActive ? '启用' : '停用') + '</span>' +
         '</div>';
     });
-  } else {
+  } else if (State.modelTab === 'measures') {
     const groupedByTable = [];
     tables.forEach(function(t) {
       const seenInTable = new Set();
@@ -1457,6 +1555,100 @@ function renderTree(model) {
       });
       html += '</div>';
     });
+  } else if (State.modelTab === 'roles') {
+    const roles = modelData.roles || [];
+    const visibleRoles = term
+      ? roles.filter(function(role) {
+          const members = role.members || [];
+          const tablePermissions = role.tablePermissions || [];
+          if (searchMatches(term, [role.name, role.description, role.modelPermission])) return true;
+          if (members.some(function(m) { return searchMatches(term, [m.name, m.memberType, m.identityProvider]); })) return true;
+          if (tablePermissions.some(function(p) { return searchMatches(term, [p.tableName, p.metadataPermission, p.filterExpression]); })) return true;
+          return false;
+        })
+      : roles;
+
+    html += '<div class="tree-group">角色 (' + visibleRoles.length + ')</div>';
+    if (!visibleRoles.length) {
+      html += '<div style="padding:10px 16px;color:var(--text3);font-size:12px">' + (term ? '未找到匹配对象' : '当前模型没有角色') + '</div>';
+    }
+
+    visibleRoles.forEach(function(role) {
+      const roleName = String(role.name || '');
+      const roleKey = 'role:' + roleName.toLowerCase();
+      const roleOpen = term ? true : expandedState(State.expandedRoles, roleKey, true);
+      const members = role.members || [];
+      const tablePermissions = role.tablePermissions || [];
+      const roleTip = addTip({
+        title: '角色',
+        rows: [
+          ['名称', roleName],
+          ['模型权限', role.modelPermission || ''],
+          ['成员数', String(members.length)],
+          ['表权限数', String(tablePermissions.length)]
+        ]
+      });
+
+      html += '<div class="tree-node tree-role" data-action="toggle-role" data-role="' + esc(roleName) + '" data-tip-id="' + roleTip + '" draggable="true" data-insert="' + esc(roleName) + '">' +
+        '<span class="tree-expand' + (roleOpen ? ' open' : '') + '">▶</span>' +
+        '<span class="tree-icon">👤</span>' +
+        '<span class="tree-label">' + esc(roleName) + '</span>' +
+        '<span class="tree-count">' + esc(role.modelPermission || '-') + '</span>' +
+        '</div>';
+
+      html += '<div class="tree-children' + (roleOpen ? ' open' : '') + '">';
+      if (role.description) {
+        html += '<div class="tree-node tree-role-member" style="cursor:default"><span class="tree-expand leaf">▶</span><span class="tree-icon">ℹ</span><span class="tree-label">说明：' + esc(role.description) + '</span></div>';
+      }
+
+      if (members.length) {
+        html += '<div class="tree-group" style="padding-left:38px">成员 (' + members.length + ')</div>';
+        members.forEach(function(member) {
+          const memberTip = addTip({
+            title: '角色成员',
+            rows: [
+              ['角色', roleName],
+              ['名称', member.name || ''],
+              ['类型', member.memberType || ''],
+              ['身份源', member.identityProvider || '']
+            ]
+          });
+          html += '<div class="tree-node tree-role-member" data-tip-id="' + memberTip + '" draggable="true" data-insert="' + esc(member.name || '') + '">' +
+            '<span class="tree-expand leaf">▶</span>' +
+            '<span class="tree-icon">•</span>' +
+            '<span class="tree-label">' + esc(member.name || '(未命名成员)') + '</span>' +
+            '</div>';
+        });
+      }
+
+      if (tablePermissions.length) {
+        html += '<div class="tree-group" style="padding-left:38px">表权限 (' + tablePermissions.length + ')</div>';
+        tablePermissions.forEach(function(permission) {
+          const filterText = String(permission.filterExpression || '').trim();
+          const preview = filterText ? filterText.replace(/\s+/g, ' ').slice(0, 80) : '(空过滤)';
+          const permissionTip = addTip({
+            title: '表权限',
+            rows: [
+              ['角色', roleName],
+              ['表', permission.tableName || ''],
+              ['元数据权限', permission.metadataPermission || '']
+            ],
+            dax: filterText
+          });
+          html += '<div class="tree-node tree-role-perm" data-tip-id="' + permissionTip + '" draggable="true" data-insert="' + esc(permission.tableName || '') + '">' +
+            '<span class="tree-expand leaf">▶</span>' +
+            '<span class="tree-icon">🔒</span>' +
+            '<span class="tree-label">' + esc(permission.tableName || '(未知表)') + '</span>' +
+            '<span class="tree-count">' + esc(preview) + '</span>' +
+            '</div>';
+        });
+      }
+
+      if (!role.description && !members.length && !tablePermissions.length) {
+        html += '<div class="tree-node tree-role-member" style="cursor:default;color:var(--text3)"><span class="tree-expand leaf">▶</span><span class="tree-icon">•</span><span class="tree-label">暂无成员和表权限</span></div>';
+      }
+      html += '</div>';
+    });
   }
 
   container.innerHTML = html;
@@ -1491,6 +1683,15 @@ document.getElementById('model-tree').addEventListener('click', function(e) {
     const folderKey = decodeURIComponent(folderEncoded);
     const key = 'msr-folder:' + String(tableName).toLowerCase() + ':' + String(folderKey).toLowerCase();
     State.expandedMeasureFolders[key] = !expandedState(State.expandedMeasureFolders, key, true);
+    renderTree(State.model);
+    return;
+  }
+
+  if (action === 'toggle-role') {
+    const roleName = row.dataset.role || '';
+    if (!roleName) return;
+    const key = 'role:' + String(roleName).toLowerCase();
+    State.expandedRoles[key] = !expandedState(State.expandedRoles, key, true);
     renderTree(State.model);
     return;
   }
@@ -1745,7 +1946,19 @@ function sendChat() {
 }
 document.getElementById('btn-send').addEventListener('click', sendChat);
 document.getElementById('chat-input').addEventListener('keydown', function(e) {
-  if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); sendChat(); }
+  if (e.isComposing) return;
+  const mode = State.uiPrefs.sendShortcut || 'ctrl_enter';
+  if (mode === 'enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendChat();
+    }
+    return;
+  }
+  if (e.ctrlKey && e.key === 'Enter') {
+    e.preventDefault();
+    sendChat();
+  }
 });
 function autoResize(el) {
   el.style.height = 'auto';
@@ -1790,7 +2003,23 @@ document.querySelectorAll('.mode-tab').forEach(function(tab) {
   });
 });
 
-document.getElementById('conn-instances').addEventListener('focus', function() { bridge.send('scan', {}); });
+function setInstanceScanLoading() {
+  const sel = document.getElementById('conn-instances');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">正在扫描实例...</option>';
+}
+
+function requestInstanceScan(showLoading, showToast) {
+  if (State.instanceScanInProgress) return;
+  State.instanceScanInProgress = true;
+  State.instanceScanToastPending = !!showToast;
+  if (showLoading) setInstanceScanLoading();
+  bridge.send('scan', {});
+}
+
+document.getElementById('conn-instances').addEventListener('focus', function() {
+  requestInstanceScan(State.instances.length === 0, false);
+});
 document.getElementById('conn-instances').addEventListener('change', function() {
   const port = this.options[this.selectedIndex] ? this.options[this.selectedIndex].dataset.port : '';
   document.getElementById('conn-port').value = port || '';
@@ -1805,7 +2034,9 @@ document.getElementById('conn-instances').addEventListener('change', function() 
 });
 
 function openConnectDialog() {
-  if (State.instances.length === 0) { bridge.send('scan', {}); }
+  if (State.instances.length === 0) {
+    requestInstanceScan(true, true);
+  }
   document.getElementById('connect-overlay').classList.add('show');
   document.getElementById('conn-tabular').value = State.uiPrefs.defaultTabularServer || '';
   setConnectModeUI(State.uiPrefs.defaultConnectMode);
@@ -1836,6 +2067,7 @@ function updateInstances(list) {
     document.getElementById('conn-port').value = list[0].port;
   } else {
     sel.innerHTML = '<option value="">— 未找到实例 —</option>';
+    document.getElementById('conn-port').value = '';
   }
 }
 
@@ -2029,15 +2261,37 @@ function renderBackups(list) {
   State.backups.forEach(function(b) {
     const tr = document.createElement('tr');
     const typeClass = b.type === '回滚' ? 'type-rollback' : b.type === '快照' ? 'type-snapshot' : 'type-other';
-    tr.innerHTML = '<td>' + esc(b.time) + '</td><td><span class="type-badge ' + typeClass + '">' + esc(b.type) + '</span></td><td>' + esc(b.name) + '</td><td>' + esc(b.size) + '</td><td style="color:var(--text3);font-size:11px">' + esc(b.dir) + '</td>';
+    const status = b.rollbackStatus || (b.type === '回滚' ? '待验证' : '—');
+    const statusClass = b.type !== '回滚'
+      ? 'rb-na'
+      : (b.canRollback ? 'rb-ready' : (status.indexOf('待') >= 0 ? 'rb-pending' : 'rb-blocked'));
+    if (b.type === '回滚' && !b.canRollback) {
+      tr.classList.add('rollback-blocked');
+    }
+    tr.innerHTML =
+      '<td>' + esc(b.time) + '</td>' +
+      '<td><span class="type-badge ' + typeClass + '">' + esc(b.type) + '</span></td>' +
+      '<td><span class="rb-badge ' + statusClass + '" title="' + esc(b.rollbackHint || '') + '">' + esc(status) + '</span></td>' +
+      '<td class="backup-summary" title="' + esc(b.rollbackSummary || '') + '">' + esc(b.rollbackSummary || '—') + '</td>' +
+      '<td>' + esc(b.name) + '</td>' +
+      '<td>' + esc(b.size) + '</td>' +
+      '<td style="color:var(--text3);font-size:11px">' + esc(b.dir) + '</td>';
     tr.dataset.path = b.path;
     tr.addEventListener('click', function() {
       document.querySelectorAll('#backup-tbody tr').forEach(function(r) { r.classList.remove('selected'); });
       tr.classList.add('selected');
       State.selectedBackupPath = b.path;
+      if (b.type === '回滚' && !b.canRollback) {
+        toast((b.rollbackHint || '该回滚点当前不可执行'), 'warn');
+      }
     });
     tr.addEventListener('dblclick', function() {
-      if (b.type === '回滚') bridge.send('executeRollback', { path: b.path });
+      if (b.type !== '回滚') return;
+      if (!b.canRollback) {
+        toast((b.rollbackHint || '该回滚点当前不可执行'), 'warn');
+        return;
+      }
+      bridge.send('executeRollback', { path: b.path });
     });
     tbody.appendChild(tr);
   });
@@ -2048,6 +2302,7 @@ document.getElementById('btn-rollback').addEventListener('click', function() {
   if (!State.selectedBackupPath) { toast('请先选择一个回滚文件', 'warn'); return; }
   const sel = State.backups.find(function(b) { return b.path === State.selectedBackupPath; });
   if (!sel || sel.type !== '回滚') { toast('所选文件不是回滚文件', 'warn'); return; }
+  if (!sel.canRollback) { toast((sel.rollbackHint || '该回滚点当前不可执行'), 'warn'); return; }
   bridge.send('executeRollback', { path: State.selectedBackupPath });
 });
 
@@ -2062,22 +2317,144 @@ const TOGGLE_TARGETS = {
   'toggle-allow-changes': 'ts-allow',
   'toggle-include-hidden': 'ts-hidden',
   'toggle-show-dax': 'ts-show-dax',
-  'toggle-show-quickprompts': 'ts-show-quickprompts'
+  'toggle-show-quickprompts': 'ts-show-quickprompts',
+  'toggle-show-startup-guide': 'ts-show-startup-guide'
 };
 
 Object.keys(TOGGLE_TARGETS).forEach(function(id) {
   document.getElementById(id).addEventListener('click', function() {
     const target = TOGGLE_TARGETS[id];
     document.getElementById(target).classList.toggle('on');
+    applyUiPrefsFromSettingsPanel();
+    scheduleAutoSaveSettings(120);
   });
 });
 
+function renderAboutVersion() {
+  const el = document.getElementById('about-version');
+  if (!el) return;
+  const raw = String(State.appVersion || '').trim();
+  if (!raw) {
+    el.textContent = 'v1.0.0';
+    return;
+  }
+  el.textContent = raw.toLowerCase().startsWith('v') ? raw : ('v' + raw);
+}
+
+function setAboutUpdateStatus(text) {
+  const el = document.getElementById('about-update-status');
+  if (!el) return;
+  el.textContent = text || '未检测更新';
+}
+
+function setUpgradeButtonEnabled(enabled) {
+  const btn = document.getElementById('btn-upgrade-now');
+  if (!btn) return;
+  btn.style.display = enabled ? '' : 'none';
+}
+
+function updateChatInputHint() {
+  const input = document.getElementById('chat-input');
+  if (!input) return;
+  if (State.uiPrefs.sendShortcut === 'enter') {
+    input.placeholder = '输入问题，Enter 发送，Shift+Enter 换行…';
+  } else {
+    input.placeholder = '输入问题，Ctrl+Enter 发送…';
+  }
+}
+
+document.getElementById('btn-check-update').addEventListener('click', function() {
+  setAboutUpdateStatus('正在检查更新...');
+  bridge.send('checkUpdates', {});
+});
+
+document.getElementById('btn-upgrade-now').addEventListener('click', function() {
+  if (!State.updateInfo || !State.updateInfo.downloadUrl) {
+    toast('请先检测更新', 'warn');
+    return;
+  }
+  setAboutUpdateStatus('正在下载安装包并启动升级...');
+  bridge.send('upgradeNow', {
+    downloadUrl: State.updateInfo.downloadUrl,
+    releaseUrl: State.updateInfo.releaseUrl
+  });
+});
+
+['s-baseurl', 's-model', 's-apikey', 's-temp', 's-sysprompt', 's-quickprompts', 's-default-tabular-server']
+  .forEach(function(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', function() {
+      applyUiPrefsFromSettingsPanel();
+      scheduleAutoSaveSettings(420);
+    });
+  });
+
+['s-theme', 's-default-model-tab', 's-default-connect-mode']
+  .forEach(function(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', function() {
+      applyUiPrefsFromSettingsPanel();
+      scheduleAutoSaveSettings(120);
+    });
+  });
+
+const sendShortcutEl = document.getElementById('s-send-shortcut');
+if (sendShortcutEl) {
+  sendShortcutEl.addEventListener('change', function() {
+    applyUiPrefsFromSettingsPanel();
+    scheduleAutoSaveSettings(120);
+  });
+}
+
+let settingsAutosaveTimer = null;
+function scheduleAutoSaveSettings(delayMs) {
+  if (settingsAutosaveTimer) clearTimeout(settingsAutosaveTimer);
+  settingsAutosaveTimer = setTimeout(function() {
+    try {
+      const s = collectSettingsFromUI();
+      bridge.send('saveSettings', s);
+    } catch (err) {
+      toast('自动保存失败: ' + err.message, 'error');
+    }
+  }, typeof delayMs === 'number' ? delayMs : 350);
+}
+
+function applyUiPrefsFromSettingsPanel() {
+  const s = collectSettingsFromUI();
+  State.uiPrefs = normalizeUiPrefs({
+    theme: document.getElementById('s-theme').value,
+    defaultModelTab: document.getElementById('s-default-model-tab').value,
+    defaultConnectMode: document.getElementById('s-default-connect-mode').value,
+    defaultTabularServer: document.getElementById('s-default-tabular-server').value.trim(),
+    sendShortcut: document.getElementById('s-send-shortcut').value,
+    showDaxInTooltip: getToggle('ts-show-dax'),
+    showQuickPrompts: getToggle('ts-show-quickprompts'),
+    autoExecuteChanges: State.uiPrefs.autoExecuteChanges
+  });
+
+  saveUiPrefs();
+  applyTheme(State.uiPrefs.theme, false);
+  setModelTab(State.uiPrefs.defaultModelTab);
+  State.connectMode = State.uiPrefs.defaultConnectMode;
+  document.getElementById('conn-tabular').value = State.uiPrefs.defaultTabularServer || '';
+  State.allowChanges = getToggle('ts-allow');
+  updateChips();
+  renderQuickPrompts(s.quickPrompts);
+  updateChatInputHint();
+}
+
 function loadSettings(s) {
   State.settings = s;
+  const provider = normalizeProvider(s.provider);
+  State.aiProvider = provider;
+  applyAiProviderUI(provider, false);
   const normalizedPrompts = normalizeQuickPrompts(s.quickPrompts);
   const quickPrompts = normalizedPrompts.length ? normalizedPrompts : DEFAULT_QUICK_PROMPTS;
-  document.getElementById('s-baseurl').value = s.baseUrl || '';
-  document.getElementById('s-model').value = s.model || '';
+  document.getElementById('s-provider').value = provider;
+  document.getElementById('s-baseurl').value = s.baseUrl || AI_PROVIDER_PRESETS[provider].baseUrl;
+  document.getElementById('s-model').value = s.model || AI_PROVIDER_PRESETS[provider].model;
   document.getElementById('s-apikey').value = s.apiKey || '';
   document.getElementById('s-temp').value = s.temperature !== undefined ? s.temperature : 0.3;
   document.getElementById('s-sysprompt').value = s.customSystemPrompt || '';
@@ -2086,10 +2463,12 @@ function loadSettings(s) {
   document.getElementById('s-default-model-tab').value = State.uiPrefs.defaultModelTab;
   document.getElementById('s-default-connect-mode').value = State.uiPrefs.defaultConnectMode;
   document.getElementById('s-default-tabular-server').value = State.uiPrefs.defaultTabularServer;
+  document.getElementById('s-send-shortcut').value = State.uiPrefs.sendShortcut;
   setToggle('ts-allow', s.allowModelChanges);
   setToggle('ts-hidden', s.includeHiddenObjects);
   setToggle('ts-show-dax', State.uiPrefs.showDaxInTooltip);
   setToggle('ts-show-quickprompts', State.uiPrefs.showQuickPrompts);
+  setToggle('ts-show-startup-guide', s.showStartupGuide !== false);
   State.allowChanges = s.allowModelChanges;
   State.aiModel = s.model || '';
   State.connectMode = State.uiPrefs.defaultConnectMode;
@@ -2097,10 +2476,14 @@ function loadSettings(s) {
   updateChips();
   renderQuickPrompts(quickPrompts);
   syncAutoExecuteCheckbox();
+  renderAboutVersion();
+  updateChatInputHint();
 }
 
 function collectSettingsFromUI() {
+  const provider = normalizeProvider(document.getElementById('s-provider').value);
   return {
+    provider: provider,
     baseUrl: document.getElementById('s-baseurl').value.trim(),
     model: document.getElementById('s-model').value.trim(),
     apiKey: document.getElementById('s-apikey').value.trim(),
@@ -2108,15 +2491,9 @@ function collectSettingsFromUI() {
     customSystemPrompt: document.getElementById('s-sysprompt').value.trim(),
     quickPrompts: document.getElementById('s-quickprompts').value.split('\n').map(function(l){return l.trim();}).filter(Boolean).slice(0,12),
     allowModelChanges: getToggle('ts-allow'),
-    includeHiddenObjects: getToggle('ts-hidden')
+    includeHiddenObjects: getToggle('ts-hidden'),
+    showStartupGuide: getToggle('ts-show-startup-guide')
   };
-}
-
-function setSaveButtonBusy(busy) {
-  const btn = document.getElementById('btn-save-settings');
-  if (!btn) return;
-  btn.disabled = !!busy;
-  btn.textContent = busy ? '保存中...' : '保存设置';
 }
 
 function setTestButtonBusy(busy) {
@@ -2131,6 +2508,7 @@ document.getElementById('btn-test-settings').addEventListener('click', function(
     const s = collectSettingsFromUI();
     setTestButtonBusy(true);
     bridge.send('testConnection', {
+      provider: s.provider,
       baseUrl: s.baseUrl,
       model: s.model,
       apiKey: s.apiKey,
@@ -2142,39 +2520,18 @@ document.getElementById('btn-test-settings').addEventListener('click', function(
   }
 });
 
-document.getElementById('btn-save-settings').addEventListener('click', function() {
-  setSaveButtonBusy(true);
-  try {
-  const s = collectSettingsFromUI();
-
-  State.uiPrefs = normalizeUiPrefs({
-    theme: document.getElementById('s-theme').value,
-    defaultModelTab: document.getElementById('s-default-model-tab').value,
-    defaultConnectMode: document.getElementById('s-default-connect-mode').value,
-    defaultTabularServer: document.getElementById('s-default-tabular-server').value.trim(),
-    showDaxInTooltip: getToggle('ts-show-dax'),
-    showQuickPrompts: getToggle('ts-show-quickprompts'),
-    autoExecuteChanges: State.uiPrefs.autoExecuteChanges
-  });
-  saveUiPrefs();
-  applyTheme(State.uiPrefs.theme, false);
-  setModelTab(State.uiPrefs.defaultModelTab);
-  State.connectMode = State.uiPrefs.defaultConnectMode;
-  document.getElementById('conn-tabular').value = State.uiPrefs.defaultTabularServer || '';
-  renderQuickPrompts(s.quickPrompts);
-
-  bridge.send('saveSettings', s);
-  } catch (err) {
-    setSaveButtonBusy(false);
-    toast('保存失败: ' + err.message, 'error');
-  }
-});
-
 // Message Handler
 const App = {
   handle: function(msg) {
     switch (msg.type) {
       case 'init':
+        State.appVersion = msg.payload.appVersion || State.appVersion;
+        State.instanceScanInProgress = false;
+        State.instanceScanToastPending = false;
+        renderAboutVersion();
+        State.updateInfo = null;
+        setUpgradeButtonEnabled(false);
+        setAboutUpdateStatus('未检测更新');
         loadSettings(msg.payload.settings || {});
         if (msg.payload.instances) updateInstances(msg.payload.instances);
         maybeShowStartupGuide();
@@ -2184,6 +2541,7 @@ const App = {
         State.dbName = msg.payload.dbName;
         State.allowChanges = msg.payload.allowChanges;
         State.expandedTables = {};
+        State.expandedRoles = {};
         updateChips();
         renderTree(msg.payload.model);
         appendMsg('system', '✅ 已连接到模型: ' + msg.payload.dbName);
@@ -2193,15 +2551,24 @@ const App = {
         State.connected = false;
         State.dbName = '';
         State.expandedTables = {};
+        State.expandedRoles = {};
         updateChips();
         renderTree(null);
         break;
-            case 'instances':
-        updateInstances(msg.payload.instances || []);
-        if ((msg.payload.instances || []).length > 0) {
-          toast('已找到 ' + msg.payload.instances.length + ' 个实例', 'info');
-        } else {
-          toast('未找到 Power BI 实例，请先打开 PBIX 文件', 'warn');
+      case 'instances':
+        {
+        const list = msg.payload.instances || [];
+        const shouldToastResult = State.instanceScanToastPending;
+        State.instanceScanInProgress = false;
+        State.instanceScanToastPending = false;
+        updateInstances(list);
+        if (shouldToastResult) {
+          if (list.length > 0) {
+            toast('已找到 ' + list.length + ' 个实例', 'info');
+          } else {
+            toast('未找到 Power BI 实例，请先打开 PBIX 文件', 'warn');
+          }
+        }
         }
         break;
       case 'chatReply':
@@ -2243,15 +2610,44 @@ const App = {
         break;
       case 'settingsSaved':
         loadSettings(msg.payload);
-        setSaveButtonBusy(false);
-        toast('设置已保存', 'success');
+        if (Date.now() - lastSettingsSavedToastAt > 1200) {
+          lastSettingsSavedToastAt = Date.now();
+          toast('更改已保存', 'success');
+        }
         break;
       case 'settingsSaveFailed':
-        setSaveButtonBusy(false);
         toast('保存失败: ' + (msg.payload.error || '未知错误'), 'error');
         break;
       case 'testConnectionDone':
         setTestButtonBusy(false);
+        break;
+      case 'updateChecked':
+        State.updateInfo = msg.payload || null;
+        if (msg.payload.hasUpdate) {
+          const latest = String(msg.payload.latestVersion || '-').replace(/^v/i, '');
+          const current = String(msg.payload.currentVersion || '-').replace(/^v/i, '');
+          setUpgradeButtonEnabled(true);
+          setAboutUpdateStatus('发现新版本 v' + latest + '（当前 v' + current + '）');
+          toast('发现新版本，可一键升级', 'success');
+        } else {
+          const current = String(msg.payload.currentVersion || '-').replace(/^v/i, '');
+          setUpgradeButtonEnabled(false);
+          setAboutUpdateStatus('已经最新（v' + current + '）');
+          toast('已经最新', 'info');
+        }
+        break;
+      case 'updateCheckFailed':
+        setUpgradeButtonEnabled(false);
+        setAboutUpdateStatus('更新检测失败：' + (msg.payload.error || '未知错误'));
+        toast('更新检测失败', 'error');
+        break;
+      case 'upgradeStarted':
+        setAboutUpdateStatus('安装包已启动，请按向导完成升级。');
+        toast('升级安装包已启动', 'success');
+        break;
+      case 'upgradeFailed':
+        setAboutUpdateStatus('升级失败：' + (msg.payload.error || '未知错误'));
+        toast('升级失败', 'error');
         break;
       case 'status':
         toast(msg.payload.text, msg.payload.level || 'info');

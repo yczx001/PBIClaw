@@ -2,6 +2,7 @@ param(
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
     [string]$Version = "",
+    [string]$UpdateBaseUrl = "https://pbihub.cn/downloads/PBIClaw",
     [switch]$KeepIntermediates
 )
 
@@ -104,12 +105,41 @@ if (-not (Test-Path $setupExe)) {
     throw "Setup exe not found: $setupExe"
 }
 
+$normalizedBaseUrl = $UpdateBaseUrl.Trim().TrimEnd('/')
+$releaseUrl = "$normalizedBaseUrl/"
+$downloadUrl = "$normalizedBaseUrl/PBIClawSetup.exe"
+$latestJsonPath = Join-Path $setupOutDir "latest.json"
+$latestManifest = [ordered]@{
+    version = $Version
+    releaseUrl = $releaseUrl
+    downloadUrl = $downloadUrl
+    summary = "PBI Claw release $Version"
+    publishedAt = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ssK")
+    tag_name = "v$Version"
+    name = "PBI Claw $Version"
+    html_url = $releaseUrl
+    body = "PBI Claw release $Version"
+    published_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    assets = @(
+        [ordered]@{
+            name = "PBIClawSetup.exe"
+            browser_download_url = $downloadUrl
+        }
+    )
+}
+$latestManifest | ConvertTo-Json -Depth 10 | Set-Content $latestJsonPath -Encoding UTF8
+
 Write-Host ""
 Write-Host "Setup EXE created:"
 Write-Host $setupExe
+Write-Host "Update manifest created:"
+Write-Host $latestJsonPath
 Write-Host "Tool version: $Version"
 Write-Host ""
 Write-Host "Double-click setup exe, choose EXE install folder, then allow Administrator permission."
+Write-Host "Publish files to your site:"
+Write-Host "  - $setupExe -> $downloadUrl"
+Write-Host "  - $latestJsonPath -> $normalizedBaseUrl/latest.json"
 Write-Host "Optional silent style argument:"
 Write-Host "`"$setupExe`" --install-dir `"C:\Program Files\PBI Claw`""
 

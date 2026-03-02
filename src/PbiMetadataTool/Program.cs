@@ -64,6 +64,7 @@ internal static class Program
             Console.WriteLine($"数据库: {metadata.DatabaseName}");
             Console.WriteLine($"表数量: {metadata.Tables.Count}");
             Console.WriteLine($"关系数量: {metadata.Relationships.Count}");
+            Console.WriteLine($"角色数量: {metadata.Roles.Count}");
             Console.WriteLine($"元数据输出: {Path.GetFullPath(outputPath)}");
 
             return 0;

@@ -35,7 +35,7 @@ internal sealed class MainFormWebView : Form
     public MainFormWebView(CliOptions startupOptions)
     {
         _startupOptions = startupOptions;
-        _bridge = new AppBridge(this);
+        _bridge = new AppBridge(this, _startupOptions);
 
         Text = $"PBI Claw v{CurrentVersion()}";
         var workingArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1600, 900);

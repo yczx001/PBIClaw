@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Runtime.InteropServices;
+using System.Reflection;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -6,6 +8,9 @@ namespace PBIClawSetup;
 
 internal sealed class SetupWizardForm : Form
 {
+    private const int WmNclbuttondown = 0xA1;
+    private const int HtCaption = 2;
+
     private enum SetupStep
     {
         Welcome = 1,
@@ -17,21 +22,30 @@ internal sealed class SetupWizardForm : Form
 
     private readonly WebView2 _webView;
     private readonly IReadOnlyList<string> _externalToolDirs;
+    private readonly bool _autoInstallOnReady;
     private SetupStep _step = SetupStep.Welcome;
     private string _installDir;
     private InstallResult? _result;
+    private bool _autoInstallStarted;
 
     public int ExitCode { get; private set; } = 1;
 
-    public SetupWizardForm()
+    public SetupWizardForm(string? initialInstallDir = null, bool autoInstall = false)
     {
         Text = "PBI Claw 安装向导";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(920, 620);
         ClientSize = new Size(980, 680);
+        FormBorderStyle = FormBorderStyle.None;
+        BackColor = Color.FromArgb(15, 17, 23);
 
         _externalToolDirs = InstallerEngine.GetMachineExternalToolDirs();
         _installDir = InstallerEngine.GetDefaultInstallDir();
+        _autoInstallOnReady = autoInstall;
+        if (!string.IsNullOrWhiteSpace(initialInstallDir))
+        {
+            _installDir = initialInstallDir.Trim();
+        }
 
         _webView = new WebView2 { Dock = DockStyle.Fill };
         Controls.Add(_webView);
@@ -84,7 +98,14 @@ internal sealed class SetupWizardForm : Form
     {
         try
         {
-            using var doc = JsonDocument.Parse(e.WebMessageAsJson);
+            var actual = e.WebMessageAsJson;
+            if (actual.StartsWith("\"", StringComparison.Ordinal) &&
+                actual.EndsWith("\"", StringComparison.Ordinal))
+            {
+                actual = JsonSerializer.Deserialize<string>(actual) ?? actual;
+            }
+
+            using var doc = JsonDocument.Parse(actual);
             var root = doc.RootElement;
             var type = root.TryGetProperty("type", out var typeNode) ? typeNode.GetString() ?? string.Empty : string.Empty;
             var payload = root.TryGetProperty("payload", out var payloadNode) ? payloadNode : default;
@@ -93,6 +114,11 @@ internal sealed class SetupWizardForm : Form
             {
                 case "ready":
                     SendState();
+                    if (_autoInstallOnReady && !_autoInstallStarted)
+                    {
+                        _autoInstallStarted = true;
+                        _ = StartInstallAsync();
+                    }
                     break;
                 case "next":
                     _ = MoveNextAsync();
@@ -118,11 +144,41 @@ internal sealed class SetupWizardForm : Form
                     ExitCode = 1;
                     Close();
                     break;
+                case "windowControl":
+                    HandleWindowControl(payload);
+                    break;
             }
         }
         catch
         {
             // Ignore malformed UI messages.
+        }
+    }
+
+    private void HandleWindowControl(JsonElement payload)
+    {
+        if (payload.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        var cmd = payload.TryGetProperty("cmd", out var cmdNode)
+            ? (cmdNode.GetString() ?? string.Empty).Trim().ToLowerInvariant()
+            : string.Empty;
+
+        switch (cmd)
+        {
+            case "drag":
+                ReleaseCapture();
+                SendMessage(Handle, WmNclbuttondown, (IntPtr)HtCaption, IntPtr.Zero);
+                break;
+            case "minimize":
+                WindowState = FormWindowState.Minimized;
+                break;
+            case "close":
+                ExitCode = 1;
+                Close();
+                break;
         }
     }
 
@@ -294,7 +350,9 @@ internal sealed class SetupWizardForm : Form
 
     private static string BuildHtml()
     {
-        return """
+        var logoUri = GetInstallerLogoDataUri();
+
+        var html = """
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -310,9 +368,15 @@ internal sealed class SetupWizardForm : Form
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:var(--font);overflow:hidden}
 #app{height:100%;display:flex;flex-direction:column}
-#header{height:86px;flex-shrink:0;background:linear-gradient(135deg,#1d2d4a,#243f6b);border-bottom:1px solid #33507d;padding:16px 22px}
-#title{font-size:20px;font-weight:700}
-#sub{margin-top:8px;font-size:12.5px;color:#d7e5ff}
+#header{height:44px;flex-shrink:0;background:var(--surface);border-bottom:1px solid var(--border);padding:0 14px;display:flex;align-items:center}
+#logo{width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;margin-right:8px;overflow:hidden;border:1px solid var(--border);background:var(--surface2)}
+#logo img{width:100%;height:100%;object-fit:cover;display:block}
+#title{font-size:14px;font-weight:700;letter-spacing:.3px}
+#topbar-spacer{flex:1}
+.window-controls{display:inline-flex;gap:4px}
+.win-btn{width:30px;height:26px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);font-size:12px;line-height:1;cursor:pointer}
+.win-btn:hover{border-color:var(--accent);color:var(--text);background:rgba(79,142,247,.1)}
+.win-btn.close:hover{border-color:var(--danger);color:#fff;background:var(--danger)}
 #body{flex:1;padding:20px 24px;overflow:auto}
 .page{display:none}
 .page.active{display:block}
@@ -345,21 +409,31 @@ li{margin:4px 0;color:var(--text2)}
 <body>
 <div id="toast"></div>
 <div id="app">
-  <div id="header">
+  <div id="header" title="拖动窗口">
+    <div id="logo"><img src="__LOGO_URI__" alt="PBI Claw"></div>
     <div id="title">PBI Claw 安装向导</div>
-    <div id="sub">使用与主程序一致的 Web UI 体验，按步骤完成安装与 External Tools 注册。</div>
+    <div id="topbar-spacer"></div>
+    <div class="window-controls">
+      <button class="win-btn" id="btn-win-min">_</button>
+      <button class="win-btn close" id="btn-win-close">×</button>
+    </div>
   </div>
   <div id="body">
     <section class="page active" data-step="1">
       <h2 class="h1">欢迎使用 PBI Claw</h2>
       <div class="card txt">
-        该安装向导将执行以下操作：
+        安装向导将完成以下步骤：
         <ul>
           <li>把 <b>PBIClaw.exe</b> 安装到你选择的目录</li>
           <li>在两个系统级 External Tools 目录自动写入 <b>PBIClaw.pbitool.json</b></li>
-          <li>Power BI 外部工具名称固定为 <b>PBI Claw</b></li>
         </ul>
-        <div style="margin-top:10px">安装过程需要管理员权限。</div>
+        <div style="margin-top:10px">安装完成后，你可以直接使用这些核心能力：</div>
+        <ul>
+          <li>一键连接 PBIX / Tabular 模型，浏览表、字段、度量值、关系和报表页面元数据</li>
+          <li>通过 AI 对话进行模型分析、DAX 建议与变更计划生成</li>
+          <li>执行前预检、自动备份与回滚，降低模型写回风险</li>
+        </ul>
+        <div style="margin-top:10px">安装过程需要管理员权限。安装完成后请重启 Power BI Desktop 以加载新工具。</div>
       </div>
     </section>
 
@@ -392,16 +466,16 @@ li{margin:4px 0;color:var(--text2)}
     <section class="page" data-step="5">
       <h2 class="h1">安装完成</h2>
       <div class="card">
-        <div class="txt">安装成功。请重启 Power BI Desktop 后在 External Tools 中点击 <b>PBI Claw</b>。</div>
+        <div class="txt">安装成功。请重启 Power BI Desktop，然后在 External Tools 中点击 <b>PBI Claw</b>（若未显示请再次重启 Power BI）。</div>
         <div id="result" style="margin-top:10px"></div>
       </div>
     </section>
   </div>
-  <div id="footer">
+    <div id="footer">
     <div id="status">准备就绪</div>
     <div id="actions">
       <button class="btn" id="cancelBtn">取消</button>
-      <button class="btn" id="backBtn">上一步</button>
+      <button class="btn" id="backBtn" style="display:none">上一步</button>
       <button class="btn primary" id="nextBtn">下一步</button>
     </div>
   </div>
@@ -409,6 +483,7 @@ li{margin:4px 0;color:var(--text2)}
 
 <script>
 const State = { step: 1, installDir: '', externalToolDirs: [], canBack: false, canNext: true, nextText: '下一步', result: null };
+let ActionPending = false;
 
 function send(type, payload){ window.chrome.webview.postMessage(JSON.stringify({ type, payload: payload || {} })); }
 function $(id){ return document.getElementById(id); }
@@ -421,14 +496,22 @@ function toast(msg){
 }
 
 function render(){
+  if (ActionPending) {
+    ActionPending = false;
+  }
+
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', Number(p.dataset.step) === State.step));
   $('installDir').value = State.installDir || '';
   $('confirmDir').textContent = State.installDir || '';
   $('dirs').innerHTML = (State.externalToolDirs || []).map(d => '<div>' + escapeHtml(d) + '</div>').join('');
   $('backBtn').style.display = State.canBack ? '' : 'none';
   $('nextBtn').textContent = State.nextText || '下一步';
-  $('nextBtn').disabled = !State.canNext;
+  $('nextBtn').disabled = !State.canNext || ActionPending;
   $('cancelBtn').style.display = State.step === 5 ? 'none' : '';
+  $('backBtn').disabled = ActionPending;
+  $('cancelBtn').disabled = ActionPending;
+  $('browseBtn').disabled = ActionPending || State.step !== 2;
+  $('installDir').disabled = ActionPending || State.step !== 2;
   $('status').textContent = State.step === 4 ? '安装中...' : (State.step === 5 ? '安装成功' : '准备就绪');
 
   if (State.step === 5 && State.result){
@@ -447,9 +530,26 @@ function escapeHtml(s){
 }
 
 $('browseBtn').addEventListener('click', () => send('browseDir'));
-$('nextBtn').addEventListener('click', () => send('next'));
-$('backBtn').addEventListener('click', () => send('back'));
+$('nextBtn').addEventListener('click', () => {
+  if (ActionPending) return;
+  ActionPending = true;
+  render();
+  send('next');
+});
+$('backBtn').addEventListener('click', () => {
+  if (ActionPending) return;
+  ActionPending = true;
+  render();
+  send('back');
+});
 $('cancelBtn').addEventListener('click', () => send('cancel'));
+$('btn-win-min').addEventListener('click', () => send('windowControl', { cmd: 'minimize' }));
+$('btn-win-close').addEventListener('click', () => send('windowControl', { cmd: 'close' }));
+$('header').addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return;
+  if (e.target.closest('button,input,textarea,select,a,label')) return;
+  send('windowControl', { cmd: 'drag' });
+});
 $('installDir').addEventListener('change', e => send('setInstallDir', { value: e.target.value || '' }));
 $('installDir').addEventListener('keyup', e => {
   if (State.step === 2 && e.key === 'Enter') send('next');
@@ -457,20 +557,90 @@ $('installDir').addEventListener('keyup', e => {
 
 window.chrome.webview.addEventListener('message', e => {
   try{
-    const msg = JSON.parse(e.data);
+    const msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
     if (msg.type === 'state'){
       Object.assign(State, msg.payload || {});
       render();
     } else if (msg.type === 'error'){
+      ActionPending = false;
+      render();
       toast((msg.payload && msg.payload.message) || '发生未知错误');
     }
   }catch(_){}
 });
 
+render();
 send('ready');
 </script>
 </body>
 </html>
 """;
+
+        return html.Replace("__LOGO_URI__", logoUri);
     }
+
+    private static string GetInstallerLogoDataUri()
+    {
+        const string defaultLogo = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%234f8ef7'/><stop offset='1' stop-color='%232d5fb8'/></linearGradient></defs><rect width='64' height='64' rx='12' fill='url(%23g)'/><text x='32' y='39' font-family='Segoe UI' font-size='22' text-anchor='middle' fill='white'>PC</text></svg>";
+        try
+        {
+            using var stream = FindEmbeddedResourceStream("Payload.PBIClaw.pbitool.json");
+            if (stream is null)
+            {
+                return defaultLogo;
+            }
+
+            using var reader = new StreamReader(stream);
+            var json = reader.ReadToEnd();
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("iconData", out var iconNode))
+            {
+                return defaultLogo;
+            }
+
+            var iconData = iconNode.GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(iconData))
+            {
+                return defaultLogo;
+            }
+
+            if (iconData.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            {
+                return iconData;
+            }
+
+            if (iconData.Contains(";base64,", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"data:{iconData}";
+            }
+
+            return $"data:image/png;base64,{iconData}";
+        }
+        catch
+        {
+            return defaultLogo;
+        }
+    }
+
+    private static Stream? FindEmbeddedResourceStream(string logicalName)
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        var exact = assembly.GetManifestResourceStream(logicalName);
+        if (exact is not null)
+        {
+            return exact;
+        }
+
+        var fallbackName = assembly
+            .GetManifestResourceNames()
+            .FirstOrDefault(name => name.EndsWith(logicalName, StringComparison.OrdinalIgnoreCase));
+
+        return fallbackName is null ? null : assembly.GetManifestResourceStream(fallbackName);
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 }
