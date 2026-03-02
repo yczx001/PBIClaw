@@ -53,6 +53,9 @@ Write-Host "Step 1/3: publish PBIClaw.exe..."
     -c $Configuration `
     -r $Runtime `
     --self-contained false `
+    -p:Version=$Version `
+    -p:FileVersion=$Version `
+    -p:AssemblyVersion=$Version `
     -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
     -p:EnableCompressionInSingleFile=true `

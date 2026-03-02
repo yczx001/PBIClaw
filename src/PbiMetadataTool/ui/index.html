@@ -973,13 +973,47 @@ function normalizeQuickPrompts(prompts) {
 }
 
 // Toast
+let lastToastMergeKey = '';
+let lastToastMergeCount = 0;
+let lastToastMergeEl = null;
+let lastToastMergeTimer = null;
+
 function toast(msg, type) {
   type = type || 'info';
+  const text = String(msg || '');
+  const key = type + '|' + text;
+
+  if (lastToastMergeEl && lastToastMergeEl.isConnected && key === lastToastMergeKey) {
+    lastToastMergeCount += 1;
+    lastToastMergeEl.textContent = text + '（x' + lastToastMergeCount + '）';
+    if (lastToastMergeTimer) clearTimeout(lastToastMergeTimer);
+    lastToastMergeTimer = setTimeout(function() {
+      if (lastToastMergeEl) lastToastMergeEl.remove();
+      lastToastMergeEl = null;
+      lastToastMergeKey = '';
+      lastToastMergeCount = 0;
+      lastToastMergeTimer = null;
+    }, 3500);
+    return;
+  }
+
   const el = document.createElement('div');
   el.className = 'toast ' + type;
-  el.textContent = msg;
+  el.textContent = text;
   document.getElementById('toast-container').appendChild(el);
-  setTimeout(function() { el.remove(); }, 3500);
+  lastToastMergeKey = key;
+  lastToastMergeCount = 1;
+  lastToastMergeEl = el;
+  if (lastToastMergeTimer) clearTimeout(lastToastMergeTimer);
+  lastToastMergeTimer = setTimeout(function() {
+    el.remove();
+    if (lastToastMergeEl === el) {
+      lastToastMergeEl = null;
+      lastToastMergeKey = '';
+      lastToastMergeCount = 0;
+      lastToastMergeTimer = null;
+    }
+  }, 3500);
 }
 
 // Navigation
@@ -2380,13 +2414,22 @@ document.getElementById('btn-upgrade-now').addEventListener('click', function() 
   });
 });
 
+const settingsDeferredSaveDirty = {};
 ['s-baseurl', 's-model', 's-apikey', 's-temp', 's-sysprompt', 's-quickprompts', 's-default-tabular-server']
   .forEach(function(id) {
     const el = document.getElementById(id);
     if (!el) return;
+
     el.addEventListener('input', function() {
+      settingsDeferredSaveDirty[id] = true;
       applyUiPrefsFromSettingsPanel();
-      scheduleAutoSaveSettings(420);
+    });
+
+    // Only persist after user exits edit mode (blur / click outside input).
+    el.addEventListener('blur', function() {
+      if (!settingsDeferredSaveDirty[id]) return;
+      settingsDeferredSaveDirty[id] = false;
+      scheduleAutoSaveSettings(80);
     });
   });
 
