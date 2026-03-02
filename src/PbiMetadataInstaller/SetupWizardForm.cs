@@ -27,6 +27,8 @@ internal sealed class SetupWizardForm : Form
     private string _installDir;
     private InstallResult? _result;
     private bool _autoInstallStarted;
+    private bool _installInProgress;
+    private bool _lastInstallFailed;
 
     public int ExitCode { get; private set; } = 1;
 
@@ -187,6 +189,7 @@ internal sealed class SetupWizardForm : Form
         switch (_step)
         {
             case SetupStep.Welcome:
+                _lastInstallFailed = false;
                 _step = SetupStep.Directory;
                 SendState();
                 break;
@@ -196,6 +199,7 @@ internal sealed class SetupWizardForm : Form
                     SendError(error);
                     return;
                 }
+                _lastInstallFailed = false;
                 _step = SetupStep.Confirm;
                 SendState();
                 break;
@@ -214,10 +218,12 @@ internal sealed class SetupWizardForm : Form
         switch (_step)
         {
             case SetupStep.Directory:
+                _lastInstallFailed = false;
                 _step = SetupStep.Welcome;
                 SendState();
                 break;
             case SetupStep.Confirm:
+                _lastInstallFailed = false;
                 _step = SetupStep.Directory;
                 SendState();
                 break;
@@ -243,6 +249,11 @@ internal sealed class SetupWizardForm : Form
 
     private async Task StartInstallAsync()
     {
+        if (_installInProgress)
+        {
+            return;
+        }
+
         if (!TryNormalizeInstallDir(out var error))
         {
             SendError(error);
@@ -268,20 +279,30 @@ internal sealed class SetupWizardForm : Form
             return;
         }
 
+        _installInProgress = true;
+        _lastInstallFailed = false;
+        _result = null;
         _step = SetupStep.Installing;
         SendState();
 
         try
         {
             _result = await Task.Run(() => InstallerEngine.InstallMachine(_installDir));
+            _lastInstallFailed = false;
             _step = SetupStep.Complete;
             SendState();
         }
         catch (Exception ex)
         {
+            _result = null;
+            _lastInstallFailed = true;
             _step = SetupStep.Confirm;
             SendState();
             SendError($"安装失败：{ex.Message}");
+        }
+        finally
+        {
+            _installInProgress = false;
         }
     }
 
@@ -318,6 +339,7 @@ internal sealed class SetupWizardForm : Form
             canBack = _step is SetupStep.Directory or SetupStep.Confirm,
             nextText = _step switch
             {
+                SetupStep.Confirm when _lastInstallFailed => "重试安装",
                 SetupStep.Confirm => "安装",
                 SetupStep.Complete => "完成",
                 SetupStep.Installing => "安装中...",

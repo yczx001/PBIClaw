@@ -67,6 +67,11 @@ internal static class InstallerEngine
         Directory.CreateDirectory(normalizedInstallDir);
 
         var exePath = Path.Combine(normalizedInstallDir, ToolExeName);
+        if (IsExecutableRunning(exePath))
+        {
+            throw new InvalidOperationException("检测到正在运行的 PBIClaw.exe，请先关闭后再重试安装。");
+        }
+
         ExtractEmbeddedResource($"Payload.{ToolExeName}", exePath);
 
         var toolModel = LoadPbiToolModel(exePath);
@@ -134,6 +139,40 @@ internal static class InstallerEngine
         using var stream = FindResourceStream(logicalName);
         using var file = File.Create(outputPath);
         stream.CopyTo(file);
+    }
+
+    private static bool IsExecutableRunning(string targetExePath)
+    {
+        var normalizedTarget = Path.GetFullPath(targetExePath);
+        var currentPid = Environment.ProcessId;
+
+        foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(ToolExeName)))
+        {
+            try
+            {
+                if (process.Id == currentPid)
+                {
+                    continue;
+                }
+
+                var processPath = process.MainModule?.FileName;
+                if (!string.IsNullOrWhiteSpace(processPath) &&
+                    string.Equals(Path.GetFullPath(processPath), normalizedTarget, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                // Ignore inaccessible processes.
+            }
+            finally
+            {
+                process.Dispose();
+            }
+        }
+
+        return false;
     }
 
     private static Stream FindResourceStream(string logicalName)
