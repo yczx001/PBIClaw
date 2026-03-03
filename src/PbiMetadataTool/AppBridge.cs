@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Diagnostics;
+using System.Text;
 
 namespace PbiMetadataTool;
 
@@ -222,9 +223,18 @@ internal sealed class AppBridge
         _chatCancelRequestedByUser = false;
         var chatCts = new CancellationTokenSource(TimeSpan.FromSeconds(ChatRequestTimeoutSeconds));
         _chatCts = chatCts;
+        var requestId = $"chat-{Guid.NewGuid():N}";
+        var startedAt = DateTimeOffset.UtcNow;
 
         try
         {
+            Send("chatStart", new
+            {
+                requestId,
+                startedAt = startedAt.ToString("O")
+            });
+            Send("chatProgress", new { requestId, phase = "context" });
+
             var runtimeSettings = BuildSettingsFromPayload(p["runtimeSettings"] as JsonObject, _settings);
             var msgs = new List<AiChatMessage>
             {
@@ -254,13 +264,49 @@ internal sealed class AppBridge
             msgs.AddRange(_conversation.TakeLast(10));
             msgs.Add(new AiChatMessage("user", prompt));
 
-            var reply = await _chatClient.CompleteAsync(new AiChatRequest(runtimeSettings, msgs), chatCts.Token);
+            Send("chatProgress", new { requestId, phase = "requesting" });
+
+            var streamingStarted = false;
+            var streamed = false;
+            var streamReply = new StringBuilder();
+
+            var completion = await _chatClient.CompleteStreamAsync(
+                new AiChatRequest(runtimeSettings, msgs),
+                delta =>
+                {
+                    if (string.IsNullOrEmpty(delta))
+                    {
+                        return;
+                    }
+
+                    if (!streamingStarted)
+                    {
+                        streamingStarted = true;
+                        Send("chatProgress", new { requestId, phase = "streaming" });
+                    }
+
+                    streamed = true;
+                    streamReply.Append(delta);
+                    Send("chatChunk", new { requestId, delta });
+                },
+                chatCts.Token);
+
+            var reply = string.IsNullOrWhiteSpace(completion.Text)
+                ? streamReply.ToString()
+                : completion.Text;
 
             _conversation.Add(new AiChatMessage("user", prompt));
             _conversation.Add(new AiChatMessage("assistant", reply));
             if (_conversation.Count > 40) _conversation.RemoveRange(0, _conversation.Count - 40);
 
-            Send("chatReply", new { text = reply });
+            var durationMs = Math.Max(1, (int)(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds);
+            Send("chatDone", new
+            {
+                requestId,
+                text = reply,
+                durationMs,
+                streamed = completion.Streamed || streamed
+            });
 
             if (runtimeSettings.AllowModelChanges && AbiActionPlanParser.TryExtract(reply, out var plan, out var preview, out _))
             {
@@ -284,14 +330,19 @@ internal sealed class AppBridge
             if (_chatCancelRequestedByUser)
             {
                 _chatCancelRequestedByUser = false;
+                Send("chatCancelled", new { requestId });
                 return;
             }
 
-            Send("chatError", new { error = $"AI 请求超时（{ChatRequestTimeoutSeconds} 秒），请重试或缩小问题范围。" });
+            Send("chatError", new
+            {
+                requestId,
+                error = $"AI 请求超时（{ChatRequestTimeoutSeconds} 秒），请重试或缩小问题范围。"
+            });
         }
         catch (Exception ex)
         {
-            Send("chatError", new { error = ex.Message });
+            Send("chatError", new { requestId, error = ex.Message });
         }
         finally
         {
@@ -1051,8 +1102,12 @@ internal sealed class AppBridge
     public void Send(string type, object payload)
     {
         var json = JsonSerializer.Serialize(new { type, payload });
-        var logPath = Path.Combine(Path.GetTempPath(), "abi_scan_debug.txt");
-        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss}] Send({type}) via ExecuteScript\n");
+        if (!string.Equals(type, "chatChunk", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(type, "chatProgress", StringComparison.OrdinalIgnoreCase))
+        {
+            var logPath = Path.Combine(Path.GetTempPath(), "abi_scan_debug.txt");
+            File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss}] Send({type}) via ExecuteScript\n");
+        }
         // Encode as base64 to safely pass arbitrary JSON into JS without escaping issues
         var b64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(json));
         _form.ExecuteScript($"try{{App.handle(JSON.parse(atob('{b64}')))}}catch(e){{console.error('Send error',e)}}");

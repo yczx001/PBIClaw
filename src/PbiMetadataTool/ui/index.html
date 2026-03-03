@@ -383,12 +383,21 @@ select.setting-input { cursor: pointer; }
 .toast.warn { border-color: rgba(245,158,11,.4); background: rgba(245,158,11,.1); color: var(--warn); }
 @keyframes slideIn { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
-/* ── Thinking indicator ── */
-.thinking { display: flex; gap: 4px; align-items: center; padding: 10px 14px; }
-.thinking span { width: 7px; height: 7px; border-radius: 50%; background: var(--text3); animation: bounce .9s infinite; }
-.thinking span:nth-child(2) { animation-delay: .15s; }
-.thinking span:nth-child(3) { animation-delay: .3s; }
-@keyframes bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-6px); background: var(--accent); } }
+/* ── Chat streaming status ── */
+.msg-bubble.streaming { padding-bottom: 8px; }
+.chat-stream-text { white-space: pre-wrap; word-break: break-word; line-height: 1.6; min-height: 18px; }
+.chat-stream-text:empty::before { content: " "; white-space: pre; }
+.chat-stream-caret { display: inline-block; width: 7px; height: 14px; margin-left: 2px; background: var(--accent); vertical-align: text-bottom; animation: caretBlink 1s steps(1,end) infinite; }
+@keyframes caretBlink { 50% { opacity: 0; } }
+.chat-stream-status { margin-top: 8px; font-size: 11.5px; color: var(--text3); display: flex; align-items: center; gap: 6px; }
+.chat-stream-status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--text3); animation: pulse 1.2s ease-in-out infinite; }
+.chat-stream-status.phase-context::before { background: var(--text3); }
+.chat-stream-status.phase-requesting::before { background: var(--accent); }
+.chat-stream-status.phase-streaming::before { background: var(--success); }
+.chat-stream-status.phase-stopping::before { background: var(--warn); animation: none; }
+.chat-stream-status.slow-l1 { color: var(--warn); }
+.chat-stream-status.slow-l2 { color: var(--danger); }
+@keyframes pulse { 0%,100% { transform: scale(1); opacity: .8; } 50% { transform: scale(1.35); opacity: 1; } }
 </style>
 </head>
 <body>
@@ -917,6 +926,10 @@ const AI_PROVIDER_PRESETS = {
 
 const SEND_BUTTON_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
 const STOP_BUTTON_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>';
+const CHAT_SLOW_HINT_L1_MS = 30000;
+const CHAT_SLOW_HINT_L2_MS = 60000;
+const CHAT_STATUS_TICK_MS = 1000;
+const CHAT_CHUNK_RENDER_THROTTLE_MS = 70;
 
 function normalizeProvider(provider) {
   return provider === 'anthropic' ? 'anthropic' : 'openai';
@@ -1820,7 +1833,268 @@ document.getElementById('model-tree').addEventListener('dragstart', function(e) 
 });
 
 // Chat
-let thinkingEl = null;
+let chatLive = null;
+
+function chatPhaseLabel(phase) {
+  if (phase === 'context') return '准备上下文';
+  if (phase === 'requesting') return '请求模型';
+  if (phase === 'streaming') return '生成中';
+  if (phase === 'stopping') return '正在停止';
+  return '处理中';
+}
+
+function ensureChatLiveSession() {
+  if (chatLive) return chatLive;
+
+  const area = document.getElementById('chat-area');
+  const row = document.createElement('div');
+  row.className = 'msg assistant';
+
+  const avatar = document.createElement('div');
+  avatar.className = 'msg-avatar';
+  avatar.textContent = 'A';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble streaming';
+
+  const textEl = document.createElement('div');
+  textEl.className = 'chat-stream-text';
+
+  const caretEl = document.createElement('span');
+  caretEl.className = 'chat-stream-caret';
+  textEl.appendChild(caretEl);
+
+  const statusEl = document.createElement('div');
+  statusEl.className = 'chat-stream-status phase-context';
+  statusEl.textContent = '准备上下文 · 已等待 0s';
+
+  bubble.appendChild(textEl);
+  bubble.appendChild(statusEl);
+  row.appendChild(avatar);
+  row.appendChild(bubble);
+  area.appendChild(row);
+  area.scrollTop = area.scrollHeight;
+
+  chatLive = {
+    requestId: '',
+    startedAtMs: Date.now(),
+    phase: 'context',
+    buffer: '',
+    rowEl: row,
+    bubbleEl: bubble,
+    textEl: textEl,
+    statusEl: statusEl,
+    caretEl: caretEl,
+    statusTimer: 0,
+    renderTimer: 0,
+    cancelling: false
+  };
+
+  State.chatSending = true;
+  updateSendButtonState();
+  startChatStatusTimer();
+  updateChatLiveStatus();
+  return chatLive;
+}
+
+function bindChatRequestId(requestId) {
+  if (!requestId) return false;
+  const session = ensureChatLiveSession();
+  if (!session.requestId) {
+    session.requestId = requestId;
+    return true;
+  }
+  return session.requestId === requestId;
+}
+
+function startChatStatusTimer() {
+  if (!chatLive) return;
+  if (chatLive.statusTimer) {
+    clearInterval(chatLive.statusTimer);
+  }
+  chatLive.statusTimer = setInterval(updateChatLiveStatus, CHAT_STATUS_TICK_MS);
+}
+
+function stopChatStatusTimer() {
+  if (!chatLive || !chatLive.statusTimer) return;
+  clearInterval(chatLive.statusTimer);
+  chatLive.statusTimer = 0;
+}
+
+function setChatLivePhase(phase) {
+  if (!chatLive) return;
+  if (!phase) return;
+  chatLive.phase = phase;
+  updateChatLiveStatus();
+}
+
+function updateChatLiveStatus() {
+  if (!chatLive) return;
+
+  const elapsedMs = Math.max(0, Date.now() - chatLive.startedAtMs);
+  const elapsedSec = Math.floor(elapsedMs / 1000);
+  const status = chatLive.statusEl;
+  if (!status) return;
+
+  status.className = 'chat-stream-status phase-' + chatLive.phase;
+  if (chatLive.phase === 'stopping') {
+    status.textContent = '正在停止请求...';
+    return;
+  }
+
+  let slowHint = '';
+  if (elapsedMs >= CHAT_SLOW_HINT_L2_MS) {
+    status.classList.add('slow-l2');
+    slowHint = ' · 响应较慢，可点红色停止后拆分问题再试';
+  } else if (elapsedMs >= CHAT_SLOW_HINT_L1_MS) {
+    status.classList.add('slow-l1');
+    slowHint = ' · 响应较慢，仍在处理中';
+  }
+
+  status.textContent = chatPhaseLabel(chatLive.phase) + ' · 已等待 ' + elapsedSec + 's' + slowHint;
+}
+
+function scheduleChatStreamRender() {
+  if (!chatLive) return;
+  if (chatLive.renderTimer) return;
+  chatLive.renderTimer = setTimeout(function() {
+    if (!chatLive) return;
+    chatLive.renderTimer = 0;
+    renderChatStreamNow();
+  }, CHAT_CHUNK_RENDER_THROTTLE_MS);
+}
+
+function renderChatStreamNow() {
+  if (!chatLive) return;
+  if (!chatLive.textEl) return;
+  chatLive.textEl.textContent = chatLive.buffer;
+  if (chatLive.phase === 'streaming' && !chatLive.cancelling) {
+    chatLive.textEl.appendChild(chatLive.caretEl);
+  }
+  const area = document.getElementById('chat-area');
+  area.scrollTop = area.scrollHeight;
+}
+
+function finalizeChatLiveMessage(finalText) {
+  if (!chatLive) return '';
+  if (chatLive.renderTimer) {
+    clearTimeout(chatLive.renderTimer);
+    chatLive.renderTimer = 0;
+  }
+  stopChatStatusTimer();
+  const text = String(finalText !== undefined && finalText !== null ? finalText : chatLive.buffer || '');
+  chatLive.bubbleEl.classList.remove('streaming');
+  chatLive.bubbleEl.innerHTML = formatText(text);
+  chatLive = null;
+  State.chatSending = false;
+  updateSendButtonState();
+  return text;
+}
+
+function clearChatLivePlaceholder() {
+  if (!chatLive) return;
+  if (chatLive.renderTimer) {
+    clearTimeout(chatLive.renderTimer);
+    chatLive.renderTimer = 0;
+  }
+  stopChatStatusTimer();
+  if (chatLive.rowEl) {
+    chatLive.rowEl.remove();
+  }
+  chatLive = null;
+  State.chatSending = false;
+  updateSendButtonState();
+}
+
+function handleChatStart(payload) {
+  const requestId = String((payload && payload.requestId) || '').trim();
+  bindChatRequestId(requestId);
+  if (!chatLive) return;
+
+  if (payload && payload.startedAt) {
+    const ts = Date.parse(String(payload.startedAt));
+    if (!Number.isNaN(ts)) {
+      chatLive.startedAtMs = ts;
+    }
+  }
+
+  setChatLivePhase('context');
+}
+
+function handleChatProgress(payload) {
+  const requestId = String((payload && payload.requestId) || '').trim();
+  if (!bindChatRequestId(requestId) || !chatLive) return;
+  const phase = String((payload && payload.phase) || '').trim();
+  if (!phase) return;
+  setChatLivePhase(phase);
+}
+
+function handleChatChunk(payload) {
+  const requestId = String((payload && payload.requestId) || '').trim();
+  if (!chatLive || !chatLive.requestId || chatLive.requestId !== requestId) return;
+  const delta = String((payload && payload.delta) || '');
+  if (!delta) return;
+  chatLive.buffer += delta;
+  if (chatLive.phase !== 'streaming') {
+    setChatLivePhase('streaming');
+  }
+  scheduleChatStreamRender();
+}
+
+function handleChatDone(payload) {
+  const requestId = String((payload && payload.requestId) || '').trim();
+  if (chatLive && chatLive.requestId && requestId && chatLive.requestId !== requestId) return;
+  if (!chatLive) {
+    const doneText = String((payload && payload.text) || '');
+    appendMsg('assistant', doneText);
+    setFollowupHint(buildFollowupHint(doneText));
+    return;
+  }
+
+  if (requestId && !chatLive.requestId) {
+    chatLive.requestId = requestId;
+  }
+
+  const text = payload && payload.text !== undefined ? String(payload.text || '') : chatLive.buffer;
+  const finalText = finalizeChatLiveMessage(text);
+  setFollowupHint(buildFollowupHint(finalText));
+}
+
+function handleChatError(payload) {
+  const requestId = String((payload && payload.requestId) || '').trim();
+  if (chatLive && chatLive.requestId && requestId && chatLive.requestId !== requestId) return;
+  const errText = String((payload && payload.error) || '未知错误');
+
+  if (chatLive) {
+    if (chatLive.buffer && chatLive.buffer.trim()) {
+      finalizeChatLiveMessage(chatLive.buffer);
+    } else {
+      clearChatLivePlaceholder();
+    }
+  }
+
+  appendMsg('system', '❌ AI 请求失败: ' + errText);
+  toast('AI 请求失败', 'error');
+}
+
+function handleChatCancelled(payload) {
+  const requestId = String((payload && payload.requestId) || '').trim();
+  if (chatLive && chatLive.requestId && requestId && chatLive.requestId !== requestId) return;
+
+  if (chatLive) {
+    if (chatLive.buffer && chatLive.buffer.trim()) {
+      finalizeChatLiveMessage(chatLive.buffer);
+    } else {
+      clearChatLivePlaceholder();
+    }
+  } else {
+    State.chatSending = false;
+    updateSendButtonState();
+  }
+
+  appendMsg('system', '⏹ 已停止本次请求');
+}
+
 function formatText(text) {
   const source = String(text || '').replace(/\r\n/g, '\n');
   const parts = [];
@@ -1963,21 +2237,6 @@ function appendPlanDetectedMsg(actionCount, autoStarted) {
   area.appendChild(div);
   area.scrollTop = area.scrollHeight;
 }
-function showThinking() {
-  const area = document.getElementById('chat-area');
-  State.chatSending = true;
-  updateSendButtonState();
-  thinkingEl = document.createElement('div');
-  thinkingEl.className = 'msg assistant';
-  thinkingEl.innerHTML = '<div class="msg-avatar">A</div><div class="msg-bubble thinking"><span></span><span></span><span></span></div>';
-  area.appendChild(thinkingEl);
-  area.scrollTop = area.scrollHeight;
-}
-function hideThinking() {
-  State.chatSending = false;
-  updateSendButtonState();
-  if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
-}
 
 function insertTextAtCursor(el, text) {
   if (!el || !text) return;
@@ -2036,13 +2295,17 @@ function sendChat() {
   input.value = '';
   autoResize(input);
   appendMsg('user', text);
-  showThinking();
+  ensureChatLiveSession();
+  setChatLivePhase('context');
   bridge.send('chat', { prompt: text, runtimeSettings: runtimeSettings });
 }
 function cancelChat() {
   if (!State.chatSending) return;
+  if (chatLive) {
+    chatLive.cancelling = true;
+    setChatLivePhase('stopping');
+  }
   bridge.send('cancelChat', {});
-  hideThinking();
 }
 function onSendButtonClick() {
   if (State.chatSending) {
@@ -2773,15 +3036,26 @@ const App = {
         }
         }
         break;
+      case 'chatStart':
+        handleChatStart(msg.payload || {});
+        break;
+      case 'chatProgress':
+        handleChatProgress(msg.payload || {});
+        break;
+      case 'chatChunk':
+        handleChatChunk(msg.payload || {});
+        break;
+      case 'chatDone':
+        handleChatDone(msg.payload || {});
+        break;
+      case 'chatCancelled':
+        handleChatCancelled(msg.payload || {});
+        break;
       case 'chatReply':
-        hideThinking();
-        appendMsg('assistant', msg.payload.text);
-        setFollowupHint(buildFollowupHint(msg.payload.text));
+        handleChatDone(msg.payload || {});
         break;
       case 'chatError':
-        hideThinking();
-        appendMsg('system', '❌ AI 请求失败: ' + msg.payload.error);
-        toast('AI 请求失败', 'error');
+        handleChatError(msg.payload || {});
         break;
       case 'planDetected':
         renderPlan(msg.payload);

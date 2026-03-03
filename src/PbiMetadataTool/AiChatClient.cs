@@ -22,8 +22,8 @@ internal sealed class AiChatClient
         ValidateSettings(request.Settings);
         var provider = ResolveProvider(request.Settings);
         var payload = provider == ProviderAnthropic
-            ? BuildAnthropicPayload(request)
-            : BuildOpenAiPayload(request);
+            ? BuildAnthropicPayload(request, stream: false)
+            : BuildOpenAiPayload(request, stream: false);
         var content = await PostWithEndpointFallbackAsync(
             request.Settings,
             provider,
@@ -31,6 +31,25 @@ internal sealed class AiChatClient
             cancellationToken).ConfigureAwait(false);
 
         return ParseAssistantContent(content, provider);
+    }
+
+    public async Task<AiChatCompletionResult> CompleteStreamAsync(
+        AiChatRequest request,
+        Action<string>? onDelta,
+        CancellationToken cancellationToken)
+    {
+        ValidateSettings(request.Settings);
+        var provider = ResolveProvider(request.Settings);
+        var payload = provider == ProviderAnthropic
+            ? BuildAnthropicPayload(request, stream: true)
+            : BuildOpenAiPayload(request, stream: true);
+
+        return await PostStreamWithEndpointFallbackAsync(
+            request.Settings,
+            provider,
+            payload,
+            onDelta,
+            cancellationToken).ConfigureAwait(false);
     }
 
     public async Task TestConnectionAsync(AbiAssistantSettings settings, CancellationToken cancellationToken)
@@ -100,7 +119,7 @@ internal sealed class AiChatClient
         }
     }
 
-    private static string BuildOpenAiPayload(AiChatRequest request)
+    private static string BuildOpenAiPayload(AiChatRequest request, bool stream)
     {
         var messages = request.Messages.Select(m => new Dictionary<string, object?>
         {
@@ -112,13 +131,14 @@ internal sealed class AiChatClient
         {
             ["model"] = request.Settings.Model.Trim(),
             ["temperature"] = request.Settings.Temperature,
-            ["messages"] = messages
+            ["messages"] = messages,
+            ["stream"] = stream
         };
 
         return JsonSerializer.Serialize(body);
     }
 
-    private static string BuildAnthropicPayload(AiChatRequest request)
+    private static string BuildAnthropicPayload(AiChatRequest request, bool stream)
     {
         var systemText = string.Join(
             Environment.NewLine + Environment.NewLine,
@@ -150,7 +170,8 @@ internal sealed class AiChatClient
             ["model"] = request.Settings.Model.Trim(),
             ["max_tokens"] = 4096,
             ["temperature"] = request.Settings.Temperature,
-            ["messages"] = messages
+            ["messages"] = messages,
+            ["stream"] = stream
         };
 
         if (!string.IsNullOrWhiteSpace(systemText))
@@ -305,6 +326,227 @@ internal sealed class AiChatClient
             "AI 接口调用失败，已尝试以下地址：" + Environment.NewLine + string.Join(Environment.NewLine, failures));
     }
 
+    private async Task<AiChatCompletionResult> PostStreamWithEndpointFallbackAsync(
+        AbiAssistantSettings settings,
+        string provider,
+        string payload,
+        Action<string>? onDelta,
+        CancellationToken cancellationToken)
+    {
+        var endpoints = BuildEndpointCandidates(settings, provider);
+        var failures = new List<string>();
+
+        foreach (var endpoint in endpoints)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+            {
+                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+            };
+            ApplyAuthHeaders(request, settings, provider);
+
+            using var response = await _httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken).ConfigureAwait(false);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var mediaType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
+                if (mediaType.Contains("text/event-stream", StringComparison.OrdinalIgnoreCase))
+                {
+                    await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                    var text = await ReadSseCompletionAsync(stream, provider, onDelta, cancellationToken).ConfigureAwait(false);
+                    return new AiChatCompletionResult(text, Streamed: true);
+                }
+
+                var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var parsed = ParseAssistantContent(content, provider);
+                if (!string.IsNullOrEmpty(parsed))
+                {
+                    onDelta?.Invoke(parsed);
+                }
+
+                return new AiChatCompletionResult(parsed, Streamed: false);
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            failures.Add($"{endpoint} -> {(int)response.StatusCode}: {TrimError(errorContent)}");
+        }
+
+        throw new InvalidOperationException(
+            "AI 接口调用失败，已尝试以下地址：" + Environment.NewLine + string.Join(Environment.NewLine, failures));
+    }
+
+    private static async Task<string> ReadSseCompletionAsync(
+        Stream stream,
+        string provider,
+        Action<string>? onDelta,
+        CancellationToken cancellationToken)
+    {
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        var sb = new StringBuilder();
+        var dataLines = new List<string>();
+        var eventType = string.Empty;
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+            if (line is null)
+            {
+                FlushSseEvent(provider, eventType, dataLines, sb, onDelta);
+                break;
+            }
+
+            if (line.Length == 0)
+            {
+                FlushSseEvent(provider, eventType, dataLines, sb, onDelta);
+                dataLines.Clear();
+                eventType = string.Empty;
+                continue;
+            }
+
+            if (line.StartsWith(":", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (line.StartsWith("event:", StringComparison.OrdinalIgnoreCase))
+            {
+                eventType = line["event:".Length..].Trim();
+                continue;
+            }
+
+            if (line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            {
+                dataLines.Add(line["data:".Length..].TrimStart());
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static void FlushSseEvent(
+        string provider,
+        string eventType,
+        List<string> dataLines,
+        StringBuilder output,
+        Action<string>? onDelta)
+    {
+        if (dataLines.Count == 0)
+        {
+            return;
+        }
+
+        var payload = string.Join("\n", dataLines).Trim();
+        if (string.IsNullOrWhiteSpace(payload) || string.Equals(payload, "[DONE]", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var delta = provider == ProviderAnthropic
+            ? TryExtractAnthropicStreamDelta(eventType, payload)
+            : TryExtractOpenAiStreamDelta(payload);
+
+        if (string.IsNullOrEmpty(delta))
+        {
+            return;
+        }
+
+        output.Append(delta);
+        onDelta?.Invoke(delta);
+    }
+
+    private static string TryExtractOpenAiStreamDelta(string payload)
+    {
+        using var doc = JsonDocument.Parse(payload);
+        if (!doc.RootElement.TryGetProperty("choices", out var choices) || choices.ValueKind != JsonValueKind.Array || choices.GetArrayLength() == 0)
+        {
+            return string.Empty;
+        }
+
+        var first = choices[0];
+        if (!first.TryGetProperty("delta", out var deltaNode))
+        {
+            return string.Empty;
+        }
+
+        if (!deltaNode.TryGetProperty("content", out var contentNode))
+        {
+            return string.Empty;
+        }
+
+        if (contentNode.ValueKind == JsonValueKind.String)
+        {
+            return contentNode.GetString() ?? string.Empty;
+        }
+
+        if (contentNode.ValueKind == JsonValueKind.Array)
+        {
+            var segments = new List<string>();
+            foreach (var item in contentNode.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                if (item.TryGetProperty("text", out var textNode))
+                {
+                    segments.Add(textNode.GetString() ?? string.Empty);
+                }
+            }
+
+            return string.Join(string.Empty, segments);
+        }
+
+        return string.Empty;
+    }
+
+    private static string TryExtractAnthropicStreamDelta(string eventType, string payload)
+    {
+        if (!string.IsNullOrWhiteSpace(eventType) &&
+            !string.Equals(eventType, "content_block_delta", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(eventType, "message_delta", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        using var doc = JsonDocument.Parse(payload);
+        if (doc.RootElement.TryGetProperty("type", out var typeNode))
+        {
+            var type = typeNode.GetString() ?? string.Empty;
+            if (!string.Equals(type, "content_block_delta", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(type, "message_delta", StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Empty;
+            }
+        }
+
+        if (!doc.RootElement.TryGetProperty("delta", out var deltaNode) || deltaNode.ValueKind != JsonValueKind.Object)
+        {
+            return string.Empty;
+        }
+
+        if (deltaNode.TryGetProperty("text", out var textNode) && textNode.ValueKind == JsonValueKind.String)
+        {
+            return textNode.GetString() ?? string.Empty;
+        }
+
+        return string.Empty;
+    }
+
+    private static string TrimError(string text)
+    {
+        var raw = (text ?? string.Empty).Trim();
+        if (raw.Length <= 600)
+        {
+            return raw;
+        }
+
+        return raw[..600] + "...";
+    }
+
     private static IReadOnlyList<string> BuildEndpointCandidates(AbiAssistantSettings settings, string provider)
     {
         var baseUrl = settings.BaseUrl.Trim().TrimEnd('/');
@@ -380,3 +622,7 @@ internal sealed record AiChatMessage(string Role, string Content);
 internal sealed record AiChatRequest(
     AbiAssistantSettings Settings,
     IReadOnlyList<AiChatMessage> Messages);
+
+internal sealed record AiChatCompletionResult(
+    string Text,
+    bool Streamed);
