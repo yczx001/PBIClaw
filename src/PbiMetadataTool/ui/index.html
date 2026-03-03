@@ -931,8 +931,8 @@ const AI_PROVIDER_PRESETS = {
 
 const SEND_BUTTON_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
 const STOP_BUTTON_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>';
-const CHAT_SLOW_HINT_L1_MS = 30000;
-const CHAT_SLOW_HINT_L2_MS = 60000;
+const CHAT_SLOW_HINT_L1_MS = 60000;
+const CHAT_SLOW_HINT_L2_MS = 120000;
 const CHAT_STATUS_TICK_MS = 1000;
 const CHAT_CHUNK_RENDER_THROTTLE_MS = 70;
 
@@ -1947,16 +1947,13 @@ function updateChatLiveStatus() {
     return;
   }
 
-  let slowHint = '';
   if (elapsedMs >= CHAT_SLOW_HINT_L2_MS) {
     status.classList.add('slow-l2');
-    slowHint = ' · 响应较慢，可点红色停止后拆分问题再试';
   } else if (elapsedMs >= CHAT_SLOW_HINT_L1_MS) {
     status.classList.add('slow-l1');
-    slowHint = ' · 响应较慢，仍在处理中';
   }
 
-  status.textContent = chatPhaseLabel(chatLive.phase) + ' · 已等待 ' + elapsedSec + 's' + slowHint;
+  status.textContent = chatPhaseLabel(chatLive.phase) + ' · 已等待 ' + elapsedSec + 's';
 }
 
 function scheduleChatStreamRender() {
