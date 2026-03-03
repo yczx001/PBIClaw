@@ -234,12 +234,20 @@ internal sealed class PowerQueryMetadataReader
 
     private static IReadOnlyList<PowerQueryQueryMetadata> ParseFromDataMashupBytes(byte[] bytes, IReadOnlyCollection<string> loadedTableNames)
     {
-        var sectionM = TryExtractSectionMFromMashupBytes(bytes);
-        if (string.IsNullOrWhiteSpace(sectionM))
+        var sections = TryExtractSectionMFromMashupBytes(bytes);
+        if (sections.Count > 0)
         {
-            sectionM = TryExtractSectionMFromBinaryText(bytes);
+            var parsed = sections
+                .Select(section => ParseQueriesFromSectionM(section, loadedTableNames))
+                .Where(rows => rows.Count > 0)
+                .ToArray();
+            if (parsed.Length > 0)
+            {
+                return MergeQueryRows(parsed);
+            }
         }
 
+        var sectionM = TryExtractSectionMFromBinaryText(bytes);
         if (string.IsNullOrWhiteSpace(sectionM))
         {
             return Array.Empty<PowerQueryQueryMetadata>();
@@ -248,22 +256,22 @@ internal sealed class PowerQueryMetadataReader
         return ParseQueriesFromSectionM(sectionM, loadedTableNames);
     }
 
-    private static string TryExtractSectionMFromMashupBytes(byte[] mashupBytes)
+    private static IReadOnlyList<string> TryExtractSectionMFromMashupBytes(byte[] mashupBytes)
     {
         var zipStart = FindZipHeaderOffset(mashupBytes);
         if (zipStart < 0)
         {
-            return string.Empty;
+            return Array.Empty<string>();
         }
 
         try
         {
             using var zipStream = new MemoryStream(mashupBytes, writable: false);
             using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read, leaveOpen: false);
-            var section = TryReadSectionFromZipArchive(archive);
-            if (!string.IsNullOrWhiteSpace(section))
+            var sections = TryReadSectionsFromZipArchive(archive);
+            if (sections.Count > 0)
             {
-                return section;
+                return sections;
             }
         }
         catch
@@ -275,28 +283,93 @@ internal sealed class PowerQueryMetadataReader
         {
             using var offsetZipStream = new MemoryStream(mashupBytes, zipStart, mashupBytes.Length - zipStart, writable: false);
             using var offsetArchive = new ZipArchive(offsetZipStream, ZipArchiveMode.Read, leaveOpen: false);
-            return TryReadSectionFromZipArchive(offsetArchive);
+            return TryReadSectionsFromZipArchive(offsetArchive);
         }
         catch
         {
-            return string.Empty;
+            return Array.Empty<string>();
         }
     }
 
-    private static string TryReadSectionFromZipArchive(ZipArchive archive)
+    private static IReadOnlyList<string> TryReadSectionsFromZipArchive(ZipArchive archive)
     {
-        var sectionEntry = archive.Entries
-            .FirstOrDefault(entry =>
-                string.Equals(entry.FullName.Replace('\\', '/'), "Formulas/Section1.m", StringComparison.OrdinalIgnoreCase) ||
-                entry.FullName.EndsWith("/Section1.m", StringComparison.OrdinalIgnoreCase));
+        var formulaEntries = archive.Entries
+            .Where(entry =>
+            {
+                if (entry.Length <= 0)
+                {
+                    return false;
+                }
 
-        if (sectionEntry is null)
+                var normalized = entry.FullName.Replace('\\', '/');
+                return normalized.EndsWith(".m", StringComparison.OrdinalIgnoreCase) &&
+                       (normalized.StartsWith("Formulas/", StringComparison.OrdinalIgnoreCase) ||
+                        normalized.Contains("/Formulas/", StringComparison.OrdinalIgnoreCase));
+            })
+            .OrderBy(entry => GetMashupSectionOrder(entry.FullName))
+            .ThenBy(entry => entry.FullName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (formulaEntries.Count == 0)
         {
-            return string.Empty;
+            formulaEntries = archive.Entries
+                .Where(entry =>
+                {
+                    if (entry.Length <= 0)
+                    {
+                        return false;
+                    }
+
+                    var normalized = entry.FullName.Replace('\\', '/');
+                    return normalized.EndsWith(".m", StringComparison.OrdinalIgnoreCase);
+                })
+                .OrderBy(entry => GetMashupSectionOrder(entry.FullName))
+                .ThenBy(entry => entry.FullName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
-        using var reader = new StreamReader(sectionEntry.Open(), Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-        return reader.ReadToEnd();
+        var sections = new List<string>();
+        foreach (var entry in formulaEntries)
+        {
+            try
+            {
+                using var reader = new StreamReader(entry.Open(), Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+                var text = reader.ReadToEnd();
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    continue;
+                }
+
+                sections.Add(text);
+            }
+            catch
+            {
+                // Continue parsing other sections.
+            }
+        }
+
+        return sections;
+    }
+
+    private static int GetMashupSectionOrder(string path)
+    {
+        var fileName = Path.GetFileName(path);
+        if (string.Equals(fileName, "Section1.m", StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        if (string.Equals(fileName, "Section.m", StringComparison.OrdinalIgnoreCase))
+        {
+            return 1;
+        }
+
+        if (fileName.StartsWith("Section", StringComparison.OrdinalIgnoreCase))
+        {
+            return 2;
+        }
+
+        return 10;
     }
 
     private static string TryExtractSectionMFromBinaryText(byte[] bytes)
@@ -412,6 +485,7 @@ internal sealed class PowerQueryMetadataReader
         }
 
         var rows = new List<PowerQueryQueryMetadata>();
+        rows.AddRange(ParseQueriesFromTmdlTableBlocks(text, loadedNames));
 
         var eqMatches = Regex.Matches(
             text,
@@ -439,7 +513,211 @@ internal sealed class PowerQueryMetadataReader
             rows.Add(CreateQueryRow(name, expr, loadedNames));
         }
 
+        return rows
+            .GroupBy(q => q.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderByDescending(ScoreQuery).First())
+            .ToList();
+    }
+
+    private static IReadOnlyList<PowerQueryQueryMetadata> ParseQueriesFromTmdlTableBlocks(string text, HashSet<string> loadedNames)
+    {
+        var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        if (lines.Length == 0)
+        {
+            return Array.Empty<PowerQueryQueryMetadata>();
+        }
+
+        var rows = new List<PowerQueryQueryMetadata>();
+        string? currentTableName = null;
+        var currentTableIndent = -1;
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            var trimmed = line.Trim();
+            if (trimmed.Length == 0)
+            {
+                continue;
+            }
+
+            var indent = GetLeadingWhitespaceWidth(line);
+            if (TryMatchTmdlTableHeader(trimmed, out var matchedTableName))
+            {
+                currentTableName = matchedTableName;
+                currentTableIndent = indent;
+                continue;
+            }
+
+            if (currentTableName is null)
+            {
+                continue;
+            }
+
+            if (indent <= currentTableIndent && IsTmdlTopLevelHeader(trimmed))
+            {
+                currentTableName = null;
+                currentTableIndent = -1;
+                continue;
+            }
+
+            if (!trimmed.StartsWith("source", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!TryMatchTmdlSourceLine(trimmed, out var inlineSource))
+            {
+                continue;
+            }
+
+            var sourceIndent = indent;
+            var sourceLines = new List<string>();
+            if (!string.IsNullOrWhiteSpace(inlineSource))
+            {
+                sourceLines.Add(inlineSource);
+            }
+
+            var cursor = i + 1;
+            for (; cursor < lines.Length; cursor++)
+            {
+                var candidateLine = lines[cursor];
+                if (candidateLine.Length == 0)
+                {
+                    sourceLines.Add(string.Empty);
+                    continue;
+                }
+
+                var candidateTrimmed = candidateLine.Trim();
+                if (candidateTrimmed.Length == 0)
+                {
+                    sourceLines.Add(string.Empty);
+                    continue;
+                }
+
+                var candidateIndent = GetLeadingWhitespaceWidth(candidateLine);
+                if (candidateIndent <= sourceIndent)
+                {
+                    break;
+                }
+
+                sourceLines.Add(candidateLine);
+            }
+
+            i = Math.Max(i, cursor - 1);
+            if (sourceLines.Count == 0)
+            {
+                continue;
+            }
+
+            var expression = NormalizeTmdlSourceBlock(sourceLines).Trim();
+            if (string.IsNullOrWhiteSpace(expression))
+            {
+                continue;
+            }
+
+            if (!LooksLikePowerQueryExpression(expression))
+            {
+                continue;
+            }
+
+            rows.Add(CreateQueryRow(currentTableName, expression, loadedNames));
+        }
+
         return rows;
+    }
+
+    private static bool TryMatchTmdlTableHeader(string trimmedLine, out string tableName)
+    {
+        var match = Regex.Match(trimmedLine, @"^table\s+(?<name>#""(?:[^""]|"""")*""|'[^']+'|""[^""]+""|[^\r\n=]+?)(?:\s*=.*)?$", RegexOptions.IgnoreCase);
+        if (match.Success)
+        {
+            tableName = NormalizeQueryName(match.Groups["name"].Value);
+            return !string.IsNullOrWhiteSpace(tableName);
+        }
+
+        tableName = string.Empty;
+        return false;
+    }
+
+    private static bool TryMatchTmdlSourceLine(string trimmedLine, out string inlineSource)
+    {
+        var match = Regex.Match(trimmedLine, @"^source\s*(?:=|:)\s*(?<expr>.*)$", RegexOptions.IgnoreCase);
+        if (!match.Success)
+        {
+            inlineSource = string.Empty;
+            return false;
+        }
+
+        inlineSource = match.Groups["expr"].Value.Trim();
+        return true;
+    }
+
+    private static bool IsTmdlTopLevelHeader(string trimmedLine)
+    {
+        return Regex.IsMatch(trimmedLine, @"^(table|role|relationship|culture|perspective|dataSource|model|database|expression|shared)\b", RegexOptions.IgnoreCase);
+    }
+
+    private static string NormalizeTmdlSourceBlock(List<string> lines)
+    {
+        if (lines.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var start = 0;
+        while (start < lines.Count && string.IsNullOrWhiteSpace(lines[start]))
+        {
+            start++;
+        }
+
+        if (start >= lines.Count)
+        {
+            return string.Empty;
+        }
+
+        var normalized = lines.Skip(start).ToList();
+        var minIndent = int.MaxValue;
+        for (var i = 0; i < normalized.Count; i++)
+        {
+            var line = normalized[i];
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            minIndent = Math.Min(minIndent, GetLeadingWhitespaceWidth(line));
+        }
+
+        if (minIndent == int.MaxValue)
+        {
+            minIndent = 0;
+        }
+
+        for (var i = 0; i < normalized.Count; i++)
+        {
+            var line = normalized[i];
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                normalized[i] = string.Empty;
+                continue;
+            }
+
+            var remove = Math.Min(minIndent, line.Length);
+            normalized[i] = line[remove..].TrimEnd();
+        }
+
+        return string.Join("\n", normalized).TrimEnd();
+    }
+
+    private static int GetLeadingWhitespaceWidth(string text)
+    {
+        var count = 0;
+        while (count < text.Length && char.IsWhiteSpace(text[count]))
+        {
+            count++;
+        }
+
+        return count;
     }
 
     private static PowerQueryQueryMetadata CreateQueryRow(string name, string expression, HashSet<string> loadedNames)
