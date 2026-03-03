@@ -72,6 +72,9 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .topbar-btn:hover { border-color: var(--accent); background: rgba(79,142,247,.08); }
 .topbar-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .topbar-btn.primary:hover { background: #6ba3ff; }
+#btn-test-settings.test-ok { border-color: rgba(34,197,94,.45); background: rgba(34,197,94,.14); color: var(--success); }
+#btn-test-settings.test-fail { border-color: rgba(239,68,68,.45); background: rgba(239,68,68,.12); color: var(--danger); }
+#btn-test-settings.testing { border-color: rgba(79,142,247,.45); background: rgba(79,142,247,.12); color: var(--accent); }
 .window-controls { display: inline-flex; gap: 4px; margin-left: 2px; }
 .win-btn { width: 30px; height: 26px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); font-size: 12px; line-height: 1; cursor: pointer; }
 .win-btn:hover { border-color: var(--accent); color: var(--text); background: rgba(79,142,247,.1); }
@@ -976,7 +979,30 @@ function normalizeQuickPrompts(prompts) {
 let lastToastMergeKey = '';
 let lastToastMergeCount = 0;
 let lastToastMergeEl = null;
-let lastToastMergeTimer = null;
+
+function removeToastMergeStateFor(el) {
+  if (lastToastMergeEl !== el) return;
+  lastToastMergeEl = null;
+  lastToastMergeKey = '';
+  lastToastMergeCount = 0;
+}
+
+function resetToastRemoveTimer(el, delayMs) {
+  if (!el) return;
+  if (el.__toastTimer) {
+    clearTimeout(el.__toastTimer);
+  }
+
+  el.__toastTimer = setTimeout(function() {
+    el.__toastTimer = null;
+    if (el && el.isConnected) {
+      el.remove();
+    }
+    if (lastToastMergeEl === el) {
+      removeToastMergeStateFor(el);
+    }
+  }, delayMs);
+}
 
 function toast(msg, type) {
   type = type || 'info';
@@ -986,14 +1012,7 @@ function toast(msg, type) {
   if (lastToastMergeEl && lastToastMergeEl.isConnected && key === lastToastMergeKey) {
     lastToastMergeCount += 1;
     lastToastMergeEl.textContent = text + '（x' + lastToastMergeCount + '）';
-    if (lastToastMergeTimer) clearTimeout(lastToastMergeTimer);
-    lastToastMergeTimer = setTimeout(function() {
-      if (lastToastMergeEl) lastToastMergeEl.remove();
-      lastToastMergeEl = null;
-      lastToastMergeKey = '';
-      lastToastMergeCount = 0;
-      lastToastMergeTimer = null;
-    }, 3500);
+    resetToastRemoveTimer(lastToastMergeEl, 3500);
     return;
   }
 
@@ -1001,19 +1020,11 @@ function toast(msg, type) {
   el.className = 'toast ' + type;
   el.textContent = text;
   document.getElementById('toast-container').appendChild(el);
+  resetToastRemoveTimer(el, 3500);
+
   lastToastMergeKey = key;
   lastToastMergeCount = 1;
   lastToastMergeEl = el;
-  if (lastToastMergeTimer) clearTimeout(lastToastMergeTimer);
-  lastToastMergeTimer = setTimeout(function() {
-    el.remove();
-    if (lastToastMergeEl === el) {
-      lastToastMergeEl = null;
-      lastToastMergeKey = '';
-      lastToastMergeCount = 0;
-      lastToastMergeTimer = null;
-    }
-  }, 3500);
 }
 
 // Navigation
@@ -1418,6 +1429,8 @@ function renderTree(model) {
         rows: [
           ['名称', t.name],
           ['表类型', t.tableType || ''],
+          ['来源类型', t.sourceType || ''],
+          ['数据源', t.dataSourceName || ''],
           ['隐藏', t.isHidden ? '是' : '否'],
           ['字段数', columns.length],
           ['度量值数', measures.length]
@@ -2469,6 +2482,7 @@ function scheduleAutoSaveSettings(delayMs) {
 
 function applyUiPrefsFromSettingsPanel() {
   const s = collectSettingsFromUI();
+  resetTestConnectionResult();
   State.uiPrefs = normalizeUiPrefs({
     theme: document.getElementById('s-theme').value,
     defaultModelTab: document.getElementById('s-default-model-tab').value,
@@ -2546,7 +2560,38 @@ function setTestButtonBusy(busy) {
   const btn = document.getElementById('btn-test-settings');
   if (!btn) return;
   btn.disabled = !!busy;
-  btn.textContent = busy ? '测试中...' : '测试连接';
+  if (busy) {
+    btn.classList.remove('test-ok', 'test-fail');
+    btn.classList.add('testing');
+    btn.textContent = '测试中...';
+    btn.title = '';
+    return;
+  }
+
+  btn.classList.remove('testing');
+  if (!btn.classList.contains('test-ok') && !btn.classList.contains('test-fail')) {
+    btn.textContent = '测试连接';
+    btn.title = '';
+  }
+}
+
+function setTestConnectionResult(ok, message) {
+  const btn = document.getElementById('btn-test-settings');
+  if (!btn) return;
+  btn.classList.remove('testing');
+  btn.classList.toggle('test-ok', !!ok);
+  btn.classList.toggle('test-fail', !ok);
+  btn.disabled = false;
+  btn.textContent = ok ? '测试成功，点击重试' : '测试失败，点击重试';
+  btn.title = String(message || '');
+}
+
+function resetTestConnectionResult() {
+  const btn = document.getElementById('btn-test-settings');
+  if (!btn) return;
+  btn.classList.remove('testing', 'test-ok', 'test-fail');
+  btn.textContent = '测试连接';
+  btn.title = '';
 }
 
 document.getElementById('btn-test-settings').addEventListener('click', function() {
@@ -2562,7 +2607,7 @@ document.getElementById('btn-test-settings').addEventListener('click', function(
     });
   } catch (err) {
     setTestButtonBusy(false);
-    toast('测试连接失败: ' + err.message, 'error');
+    setTestConnectionResult(false, String(err.message || '未知错误'));
   }
 });
 
@@ -2667,6 +2712,9 @@ const App = {
       case 'testConnectionDone':
         setTestButtonBusy(false);
         break;
+      case 'testConnectionResult':
+        setTestConnectionResult(!!msg.payload.ok, msg.payload.message || '');
+        break;
       case 'updateChecked':
         State.updateInfo = msg.payload || null;
         if (msg.payload.hasUpdate) {
@@ -2696,6 +2744,10 @@ const App = {
         toast('升级失败', 'error');
         break;
       case 'status':
+        if (msg.payload && typeof msg.payload.text === 'string') {
+          if (msg.payload.text === '连接测试成功') break;
+          if (msg.payload.text.startsWith('连接测试失败')) break;
+        }
         toast(msg.payload.text, msg.payload.level || 'info');
         break;
       case 'log':

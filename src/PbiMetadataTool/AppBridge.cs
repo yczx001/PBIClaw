@@ -24,6 +24,7 @@ internal sealed class AppBridge
     private readonly CliOptions _startupOptions;
     private readonly PowerBiInstanceDetector _detector = new();
     private readonly TabularMetadataReader _reader = new();
+    private readonly OnDemandMetadataContextBuilder _onDemandContextBuilder = new();
     private readonly ReportMetadataReader _reportReader = new();
     private readonly TabularModelWriter _writer = new();
     private readonly AiChatClient _chatClient = new();
@@ -235,6 +236,16 @@ internal sealed class AppBridge
             {
                 msgs.Add(new AiChatMessage("system", referencedCalculatedContext));
             }
+            var referencedSourceContext = MetadataPromptBuilder.BuildReferencedTableSourceContext(_model, prompt, runtimeSettings.IncludeHiddenObjects);
+            if (!string.IsNullOrWhiteSpace(referencedSourceContext))
+            {
+                msgs.Add(new AiChatMessage("system", referencedSourceContext));
+            }
+            var onDemandDeepContext = BuildOnDemandDeepContext(prompt, runtimeSettings.IncludeHiddenObjects);
+            if (!string.IsNullOrWhiteSpace(onDemandDeepContext))
+            {
+                msgs.Add(new AiChatMessage("system", onDemandDeepContext));
+            }
             msgs.AddRange(_conversation.TakeLast(10));
             msgs.Add(new AiChatMessage("user", prompt));
 
@@ -277,11 +288,11 @@ internal sealed class AppBridge
             var runtime = BuildSettingsFromPayload(p, _settings);
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
             await _chatClient.TestConnectionAsync(runtime, cts.Token);
-            Send("status", new { text = "连接测试成功", level = "success" });
+            Send("testConnectionResult", new { ok = true, message = "连接测试成功" });
         }
         catch (Exception ex)
         {
-            Send("status", new { text = $"连接测试失败: {ex.Message}", level = "error" });
+            Send("testConnectionResult", new { ok = false, message = $"连接测试失败: {ex.Message}" });
         }
         finally
         {
@@ -1105,12 +1116,39 @@ internal sealed class AppBridge
 
     private void ConnectTabularServer(string server)
     {
+        _lastTabularServer = server;
         var connStr = $"DataSource={server};";
         _model = _reader.ReadMetadata(connStr, null);
         _currentPort = null;
         _connectedModelDisplayName = _model.DatabaseName;
         _currentBackupModelKey = SafeName(_connectedModelDisplayName);
         _report = null;
+    }
+
+    private string BuildOnDemandDeepContext(string prompt, bool includeHiddenObjects)
+    {
+        if (_model is null)
+        {
+            return string.Empty;
+        }
+
+        var connectionString = _currentPort.HasValue
+            ? $"DataSource=localhost:{_currentPort.Value};"
+            : (!string.IsNullOrWhiteSpace(_lastTabularServer) ? $"DataSource={_lastTabularServer};" : string.Empty);
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            return _onDemandContextBuilder.Build(connectionString, _model.DatabaseName, _model, prompt, includeHiddenObjects);
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     private void SendConnectedModel()
@@ -1649,6 +1687,9 @@ internal sealed class AppBridge
             isHidden = t.IsHidden,
             tableType = t.TableType,
             expression = t.Expression,
+            sourceType = t.SourceType,
+            sourceExpression = t.SourceExpression,
+            dataSourceName = t.DataSourceName,
             measures = t.Measures.Select(ms => new
             {
                 name = ms.Name,

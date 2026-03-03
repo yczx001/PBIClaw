@@ -21,29 +21,36 @@ internal sealed class TabularMetadataReader
             }
 
             var tables = database.Model.Tables
-                .Select(table => new TableMetadata(
-                    Name: table.Name,
-                    IsHidden: table.IsHidden,
-                    Columns: table.Columns
-                        .Select(column => new ColumnMetadata(
-                            Name: column.Name,
-                            ColumnType: column.Type.ToString(),
-                            DataType: column.DataType.ToString(),
-                            IsHidden: column.IsHidden,
-                            Expression: column is CalculatedColumn calculatedColumn
-                                ? (calculatedColumn.Expression ?? string.Empty)
-                                : string.Empty))
-                        .ToList(),
-                    Measures: table.Measures
-                        .Select(measure => new MeasureMetadata(
-                            Name: measure.Name,
-                            Expression: measure.Expression ?? string.Empty,
-                            FormatString: measure.FormatString ?? string.Empty,
-                            IsHidden: measure.IsHidden,
-                            DisplayFolder: measure.DisplayFolder ?? string.Empty))
-                        .ToList(),
-                    TableType: ResolveTableType(table),
-                    Expression: ResolveCalculatedTableExpression(table)))
+                .Select(table =>
+                {
+                    var sourceInfo = ResolveTableSourceInfo(table);
+                    return new TableMetadata(
+                        Name: table.Name,
+                        IsHidden: table.IsHidden,
+                        Columns: table.Columns
+                            .Select(column => new ColumnMetadata(
+                                Name: column.Name,
+                                ColumnType: column.Type.ToString(),
+                                DataType: column.DataType.ToString(),
+                                IsHidden: column.IsHidden,
+                                Expression: column is CalculatedColumn calculatedColumn
+                                    ? (calculatedColumn.Expression ?? string.Empty)
+                                    : string.Empty))
+                            .ToList(),
+                        Measures: table.Measures
+                            .Select(measure => new MeasureMetadata(
+                                Name: measure.Name,
+                                Expression: measure.Expression ?? string.Empty,
+                                FormatString: measure.FormatString ?? string.Empty,
+                                IsHidden: measure.IsHidden,
+                                DisplayFolder: measure.DisplayFolder ?? string.Empty))
+                            .ToList(),
+                        TableType: ResolveTableType(table),
+                        Expression: ResolveCalculatedTableExpression(table),
+                        SourceType: sourceInfo.SourceType,
+                        SourceExpression: sourceInfo.SourceExpression,
+                        DataSourceName: sourceInfo.DataSourceName);
+                })
                 .ToList();
 
             var relationships = database.Model.Relationships
@@ -218,14 +225,7 @@ internal sealed class TabularMetadataReader
         }
 
         var source = table.Partitions[0].Source;
-        return source switch
-        {
-            CalculatedPartitionSource => "Calculated",
-            QueryPartitionSource => "Import",
-            MPartitionSource => "PowerQuery",
-            EntityPartitionSource => "Entity",
-            _ => source?.GetType().Name ?? "Unknown"
-        };
+        return ResolvePartitionSourceType(source);
     }
 
     private static string ResolveCalculatedTableExpression(Table table)
@@ -239,5 +239,87 @@ internal sealed class TabularMetadataReader
         }
 
         return string.Empty;
+    }
+
+    private static (string SourceType, string SourceExpression, string DataSourceName) ResolveTableSourceInfo(Table table)
+    {
+        if (table.Partitions.Count == 0)
+        {
+            return ("Unknown", string.Empty, string.Empty);
+        }
+
+        string sourceType = "Unknown";
+        string sourceExpression = string.Empty;
+        string dataSourceName = string.Empty;
+
+        foreach (var partition in table.Partitions)
+        {
+            var source = partition.Source;
+            if (source is null)
+            {
+                continue;
+            }
+
+            if (string.Equals(sourceType, "Unknown", StringComparison.OrdinalIgnoreCase))
+            {
+                sourceType = ResolvePartitionSourceType(source);
+            }
+
+            if (string.IsNullOrWhiteSpace(sourceExpression))
+            {
+                sourceExpression = ResolvePartitionSourceExpression(source);
+            }
+
+            if (string.IsNullOrWhiteSpace(dataSourceName))
+            {
+                dataSourceName = ResolvePartitionDataSourceName(source);
+            }
+
+            if (!string.IsNullOrWhiteSpace(sourceExpression) && !string.IsNullOrWhiteSpace(dataSourceName))
+            {
+                break;
+            }
+        }
+
+        return (sourceType, sourceExpression, dataSourceName);
+    }
+
+    private static string ResolvePartitionSourceType(PartitionSource? source)
+    {
+        return source switch
+        {
+            CalculatedPartitionSource => "Calculated",
+            MPartitionSource => "PowerQuery",
+            QueryPartitionSource => "Query",
+            EntityPartitionSource => "Entity",
+            null => "Unknown",
+            _ => source.GetType().Name
+        };
+    }
+
+    private static string ResolvePartitionSourceExpression(PartitionSource source)
+    {
+        return source switch
+        {
+            CalculatedPartitionSource calculatedSource => calculatedSource.Expression ?? string.Empty,
+            MPartitionSource mSource => mSource.Expression ?? string.Empty,
+            QueryPartitionSource qSource => qSource.Query ?? string.Empty,
+            _ => FirstNonEmpty(
+                GetStringProperty(source, "Expression"),
+                GetStringProperty(source, "Query"))
+        };
+    }
+
+    private static string ResolvePartitionDataSourceName(PartitionSource source)
+    {
+        object? dataSource = source switch
+        {
+            QueryPartitionSource qSource => qSource.DataSource,
+            _ => GetObjectProperty(source, "DataSource")
+        };
+
+        return FirstNonEmpty(
+            GetStringProperty(dataSource, "Name"),
+            GetStringProperty(dataSource, "ID"));
     }
 }

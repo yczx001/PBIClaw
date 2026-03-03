@@ -107,12 +107,19 @@ internal static class MetadataPromptBuilder
 
             var tableType = string.IsNullOrWhiteSpace(table.TableType) ? "Unknown" : table.TableType;
             sb.AppendLine($"[表] {table.Name} | 表类型: {tableType}" + (table.IsHidden ? " (Hidden)" : string.Empty));
+            if (!string.IsNullOrWhiteSpace(table.SourceType))
+            {
+                sb.AppendLine($"  来源类型: {table.SourceType}");
+            }
+            if (!string.IsNullOrWhiteSpace(table.DataSourceName))
+            {
+                sb.AppendLine($"  数据源: {table.DataSourceName}");
+            }
 
             if (string.Equals(tableType, "Calculated", StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrWhiteSpace(table.Expression))
             {
-                sb.AppendLine("  计算表 DAX:");
-                sb.AppendLine(IndentBlock(TruncateExpression(table.Expression, 1400), "    "));
+                sb.AppendLine("  计算表 DAX:（按需查询时提供完整表达式）");
             }
 
             var columns = table.Columns
@@ -127,8 +134,7 @@ internal static class MetadataPromptBuilder
                 if (string.Equals(column.ColumnType, "Calculated", StringComparison.OrdinalIgnoreCase) &&
                     !string.IsNullOrWhiteSpace(column.Expression))
                 {
-                    sb.AppendLine("    计算列 DAX:");
-                    sb.AppendLine(IndentBlock(TruncateExpression(column.Expression, 1000), "      "));
+                    sb.AppendLine("    计算列 DAX:（按需查询时提供完整表达式）");
                 }
             }
 
@@ -262,14 +268,8 @@ internal static class MetadataPromptBuilder
                 sb.AppendLine($"  格式: {hit.Measure.FormatString}");
             }
 
-            var expression = (hit.Measure.Expression ?? string.Empty).Trim();
-            if (expression.Length > 1200)
-            {
-                expression = expression[..1200] + Environment.NewLine + "...(已截断)";
-            }
-
             sb.AppendLine("  DAX:");
-            sb.AppendLine(IndentBlock(expression, "    "));
+            sb.AppendLine(IndentBlock(hit.Measure.Expression ?? string.Empty, "    "));
         }
 
         return sb.ToString().TrimEnd();
@@ -333,7 +333,62 @@ internal static class MetadataPromptBuilder
         {
             sb.AppendLine($"- {row.Kind}: {row.Name}");
             sb.AppendLine("  DAX:");
-            sb.AppendLine(IndentBlock(TruncateExpression(row.Expression, 1400), "    "));
+            sb.AppendLine(IndentBlock(row.Expression, "    "));
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    public static string BuildReferencedTableSourceContext(ModelMetadata metadata, string userPrompt, bool includeHiddenObjects)
+    {
+        if (string.IsNullOrWhiteSpace(userPrompt))
+        {
+            return string.Empty;
+        }
+
+        var prompt = userPrompt.Trim();
+        var rows = new List<(string Table, string SourceType, string DataSourceName, string SourceExpression)>();
+
+        foreach (var table in metadata.Tables)
+        {
+            if (!includeHiddenObjects && table.IsHidden)
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(table.SourceExpression))
+            {
+                continue;
+            }
+
+            if (!IsPromptMentioningObject(prompt, table.Name))
+            {
+                continue;
+            }
+
+            rows.Add((table.Name, table.SourceType, table.DataSourceName, table.SourceExpression));
+        }
+
+        if (rows.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine("用户问题中疑似提到了以下表的数据来源，请基于真实查询脚本回答：");
+        foreach (var row in rows.Take(8))
+        {
+            sb.AppendLine($"- 表: {row.Table}");
+            if (!string.IsNullOrWhiteSpace(row.SourceType))
+            {
+                sb.AppendLine($"  来源类型: {row.SourceType}");
+            }
+            if (!string.IsNullOrWhiteSpace(row.DataSourceName))
+            {
+                sb.AppendLine($"  数据源: {row.DataSourceName}");
+            }
+            sb.AppendLine("  查询脚本:");
+            sb.AppendLine(IndentBlock(row.SourceExpression, "    "));
         }
 
         return sb.ToString().TrimEnd();
@@ -388,17 +443,6 @@ internal static class MetadataPromptBuilder
 
         return tableName.Length >= 2 &&
                prompt.Contains(tableName, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string TruncateExpression(string expression, int maxLength)
-    {
-        var value = (expression ?? string.Empty).Trim();
-        if (value.Length <= maxLength)
-        {
-            return value;
-        }
-
-        return value[..maxLength] + Environment.NewLine + "...(已截断)";
     }
 
     private static string IndentBlock(string text, string indent)

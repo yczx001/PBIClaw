@@ -14,7 +14,10 @@ public sealed record TableMetadata(
     IReadOnlyList<ColumnMetadata> Columns,
     IReadOnlyList<MeasureMetadata> Measures,
     string TableType = "",
-    string Expression = "");
+    string Expression = "",
+    string SourceType = "",
+    string SourceExpression = "",
+    string DataSourceName = "");
 
 public sealed record ColumnMetadata(
     string Name,
