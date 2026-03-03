@@ -30,19 +30,10 @@ internal sealed class PowerQueryMetadataReader
             var fullPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(sourcePath.Trim()));
             if (Directory.Exists(fullPath))
             {
-                var rows = ParseFromPbipDirectory(fullPath, loadedTableNames);
-                if (rows.Count > 0)
-                {
-                    return rows;
-                }
-
-                rows = ParseFromWorkspaceDirectory(fullPath, loadedTableNames);
-                if (rows.Count > 0)
-                {
-                    return rows;
-                }
-
-                return Array.Empty<PowerQueryQueryMetadata>();
+                return MergeQueryRows(
+                    ParseFromPbipDirectory(fullPath, loadedTableNames),
+                    ParseFromWorkspaceDirectory(fullPath, loadedTableNames),
+                    ParseFromTmdlDirectory(fullPath, loadedTableNames));
             }
 
             if (!File.Exists(fullPath))
@@ -53,7 +44,9 @@ internal sealed class PowerQueryMetadataReader
             var ext = Path.GetExtension(fullPath).ToLowerInvariant();
             if (ext is ".pbix" or ".pbit")
             {
-                return ParseFromPbixArchive(fullPath, loadedTableNames);
+                return MergeQueryRows(
+                    ParseFromPbixArchive(fullPath, loadedTableNames),
+                    ParseFromTmdlDirectory(Path.GetDirectoryName(fullPath) ?? string.Empty, loadedTableNames));
             }
 
             if (ext == ".pbip")
@@ -61,7 +54,9 @@ internal sealed class PowerQueryMetadataReader
                 var projectDir = Path.GetDirectoryName(fullPath);
                 if (!string.IsNullOrWhiteSpace(projectDir))
                 {
-                    return ParseFromPbipDirectory(projectDir, loadedTableNames);
+                    return MergeQueryRows(
+                        ParseFromPbipDirectory(projectDir, loadedTableNames),
+                        ParseFromTmdlDirectory(projectDir, loadedTableNames));
                 }
             }
         }
@@ -180,6 +175,61 @@ internal sealed class PowerQueryMetadataReader
         }
 
         return Array.Empty<PowerQueryQueryMetadata>();
+    }
+
+    private static IReadOnlyList<PowerQueryQueryMetadata> ParseFromTmdlDirectory(string rootDir, IReadOnlyCollection<string> loadedTableNames)
+    {
+        if (string.IsNullOrWhiteSpace(rootDir) || !Directory.Exists(rootDir))
+        {
+            return Array.Empty<PowerQueryQueryMetadata>();
+        }
+
+        var files = new List<string>();
+        try
+        {
+            var semanticModelDirs = Directory.EnumerateDirectories(rootDir, "*.SemanticModel", SearchOption.TopDirectoryOnly).ToList();
+            if (semanticModelDirs.Count > 0)
+            {
+                foreach (var semanticModelDir in semanticModelDirs)
+                {
+                    files.AddRange(Directory.EnumerateFiles(semanticModelDir, "*.tmdl", SearchOption.AllDirectories));
+                }
+            }
+            else
+            {
+                files.AddRange(Directory.EnumerateFiles(rootDir, "*.tmdl", SearchOption.AllDirectories).Take(1200));
+            }
+        }
+        catch
+        {
+            return Array.Empty<PowerQueryQueryMetadata>();
+        }
+
+        if (files.Count == 0)
+        {
+            return Array.Empty<PowerQueryQueryMetadata>();
+        }
+
+        var loadedNames = new HashSet<string>(loadedTableNames ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        var rows = new List<PowerQueryQueryMetadata>();
+        foreach (var path in files.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var text = File.ReadAllText(path, Encoding.UTF8);
+                rows.AddRange(ParseQueriesFromTmdlText(text, loadedNames));
+            }
+            catch
+            {
+                // Skip invalid files.
+            }
+        }
+
+        return rows
+            .GroupBy(q => q.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderByDescending(ScoreQuery).First())
+            .OrderBy(q => q.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private static IReadOnlyList<PowerQueryQueryMetadata> ParseFromDataMashupBytes(byte[] bytes, IReadOnlyCollection<string> loadedTableNames)
@@ -354,6 +404,127 @@ internal sealed class PowerQueryMetadataReader
             .ToList();
     }
 
+    private static IReadOnlyList<PowerQueryQueryMetadata> ParseQueriesFromTmdlText(string text, HashSet<string> loadedNames)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return Array.Empty<PowerQueryQueryMetadata>();
+        }
+
+        var rows = new List<PowerQueryQueryMetadata>();
+
+        var eqMatches = Regex.Matches(
+            text,
+            @"(?ms)^\s*(?:expression|shared)\s+(?<name>#""(?:[^""]|"""")*""|'[^']+'|""[^""]+""|[^\s=]+)\s*=\s*(?<expr>.*?)(?=^\s*(?:expression|shared|table|role|relationship|culture|perspective|dataSource|model|database|partition)\b|\z)");
+
+        foreach (Match match in eqMatches)
+        {
+            if (!match.Success)
+            {
+                continue;
+            }
+
+            var name = NormalizeQueryName(match.Groups["name"].Value);
+            var expr = match.Groups["expr"].Value.Trim();
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(expr))
+            {
+                continue;
+            }
+
+            if (!LooksLikePowerQueryExpression(expr))
+            {
+                continue;
+            }
+
+            rows.Add(CreateQueryRow(name, expr, loadedNames));
+        }
+
+        return rows;
+    }
+
+    private static PowerQueryQueryMetadata CreateQueryRow(string name, string expression, HashSet<string> loadedNames)
+    {
+        var isParameter = Regex.IsMatch(expression, @"IsParameterQuery\s*=\s*true", RegexOptions.IgnoreCase);
+        var isFunction = expression.StartsWith("(", StringComparison.Ordinal) || Regex.IsMatch(expression, @"=>");
+        var lineage = QuerySourceParser.Parse("PowerQuery", expression, string.Empty);
+        return new PowerQueryQueryMetadata(
+            Name: name,
+            Expression: expression,
+            IsLoadedToModel: loadedNames.Contains(name),
+            IsParameter: isParameter,
+            IsFunction: isFunction,
+            SourceSystemType: lineage.SystemType,
+            SourceServer: lineage.Server,
+            SourceDatabase: lineage.Database,
+            SourceSchema: lineage.Schema,
+            SourceObjectName: lineage.ObjectName);
+    }
+
+    private static bool LooksLikePowerQueryExpression(string expression)
+    {
+        if (string.IsNullOrWhiteSpace(expression))
+        {
+            return false;
+        }
+
+        return Regex.IsMatch(expression, @"(?is)\blet\b.+\bin\b") ||
+               expression.Contains("Sql.Database", StringComparison.OrdinalIgnoreCase) ||
+               expression.Contains("PostgreSQL.Database", StringComparison.OrdinalIgnoreCase) ||
+               expression.Contains("MySQL.Database", StringComparison.OrdinalIgnoreCase) ||
+               expression.Contains("Odbc.DataSource", StringComparison.OrdinalIgnoreCase) ||
+               expression.Contains("Web.Contents", StringComparison.OrdinalIgnoreCase) ||
+               expression.Contains("Table.", StringComparison.OrdinalIgnoreCase) ||
+               expression.Contains("#table", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IReadOnlyList<PowerQueryQueryMetadata> MergeQueryRows(params IReadOnlyList<PowerQueryQueryMetadata>[] sources)
+    {
+        var merged = new Dictionary<string, PowerQueryQueryMetadata>(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in sources)
+        {
+            if (source is null || source.Count == 0)
+            {
+                continue;
+            }
+
+            foreach (var item in source)
+            {
+                if (!merged.TryGetValue(item.Name, out var current))
+                {
+                    merged[item.Name] = item;
+                    continue;
+                }
+
+                if (ScoreQuery(item) > ScoreQuery(current))
+                {
+                    merged[item.Name] = item;
+                }
+            }
+        }
+
+        return merged.Values
+            .OrderBy(q => q.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static int ScoreQuery(PowerQueryQueryMetadata query)
+    {
+        var score = 0;
+        if (!string.IsNullOrWhiteSpace(query.Expression))
+        {
+            score += Math.Min(4000, query.Expression.Length);
+        }
+        if (query.IsLoadedToModel)
+        {
+            score += 200;
+        }
+        if (!string.IsNullOrWhiteSpace(query.SourceSystemType) && !string.Equals(query.SourceSystemType, "Unknown", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 100;
+        }
+        return score;
+    }
+
     private static string NormalizeQueryName(string rawName)
     {
         if (string.IsNullOrWhiteSpace(rawName))
@@ -365,6 +536,11 @@ internal sealed class PowerQueryMetadataReader
         if (name.StartsWith("#\"", StringComparison.Ordinal) && name.EndsWith("\"", StringComparison.Ordinal) && name.Length >= 3)
         {
             name = name[2..^1].Replace("\"\"", "\"", StringComparison.Ordinal);
+        }
+        else if ((name.StartsWith("\"", StringComparison.Ordinal) && name.EndsWith("\"", StringComparison.Ordinal)) ||
+                 (name.StartsWith("'", StringComparison.Ordinal) && name.EndsWith("'", StringComparison.Ordinal)))
+        {
+            name = name[1..^1];
         }
 
         return name.Trim();

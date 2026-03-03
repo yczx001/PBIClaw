@@ -1255,14 +1255,14 @@ internal sealed class AppBridge
             try
             {
                 var hit = _detector.DiscoverInstances().FirstOrDefault(i => i.Port == _currentPort.Value);
-                if (hit is not null && !string.IsNullOrWhiteSpace(hit.PbixPathHint))
-                {
-                    return hit.PbixPathHint;
-                }
-
                 if (hit is not null && !string.IsNullOrWhiteSpace(hit.WorkspacePath))
                 {
                     return hit.WorkspacePath;
+                }
+
+                if (hit is not null && !string.IsNullOrWhiteSpace(hit.PbixPathHint))
+                {
+                    return hit.PbixPathHint;
                 }
             }
             catch
