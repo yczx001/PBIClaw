@@ -29,7 +29,10 @@ internal sealed class TabularMetadataReader
                             Name: column.Name,
                             ColumnType: column.Type.ToString(),
                             DataType: column.DataType.ToString(),
-                            IsHidden: column.IsHidden))
+                            IsHidden: column.IsHidden,
+                            Expression: column is CalculatedColumn calculatedColumn
+                                ? (calculatedColumn.Expression ?? string.Empty)
+                                : string.Empty))
                         .ToList(),
                     Measures: table.Measures
                         .Select(measure => new MeasureMetadata(
@@ -38,7 +41,9 @@ internal sealed class TabularMetadataReader
                             FormatString: measure.FormatString ?? string.Empty,
                             IsHidden: measure.IsHidden,
                             DisplayFolder: measure.DisplayFolder ?? string.Empty))
-                        .ToList()))
+                        .ToList(),
+                    TableType: ResolveTableType(table),
+                    Expression: ResolveCalculatedTableExpression(table)))
                 .ToList();
 
             var relationships = database.Model.Relationships
@@ -199,6 +204,37 @@ internal sealed class TabularMetadataReader
             if (!string.IsNullOrWhiteSpace(value))
             {
                 return value;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string ResolveTableType(Table table)
+    {
+        if (table.Partitions.Count == 0)
+        {
+            return "Unknown";
+        }
+
+        var source = table.Partitions[0].Source;
+        return source switch
+        {
+            CalculatedPartitionSource => "Calculated",
+            QueryPartitionSource => "Import",
+            MPartitionSource => "PowerQuery",
+            EntityPartitionSource => "Entity",
+            _ => source?.GetType().Name ?? "Unknown"
+        };
+    }
+
+    private static string ResolveCalculatedTableExpression(Table table)
+    {
+        foreach (var partition in table.Partitions)
+        {
+            if (partition.Source is CalculatedPartitionSource calculatedSource)
+            {
+                return calculatedSource.Expression ?? string.Empty;
             }
         }
 

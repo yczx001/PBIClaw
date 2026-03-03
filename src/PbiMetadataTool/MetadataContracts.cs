@@ -12,13 +12,16 @@ public sealed record TableMetadata(
     string Name,
     bool IsHidden,
     IReadOnlyList<ColumnMetadata> Columns,
-    IReadOnlyList<MeasureMetadata> Measures);
+    IReadOnlyList<MeasureMetadata> Measures,
+    string TableType = "",
+    string Expression = "");
 
 public sealed record ColumnMetadata(
     string Name,
     string ColumnType,
     string DataType,
-    bool IsHidden);
+    bool IsHidden,
+    string Expression = "");
 
 public sealed record MeasureMetadata(
     string Name,

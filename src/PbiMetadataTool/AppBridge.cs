@@ -230,6 +230,11 @@ internal sealed class AppBridge
             {
                 msgs.Add(new AiChatMessage("system", referencedMeasureContext));
             }
+            var referencedCalculatedContext = MetadataPromptBuilder.BuildReferencedCalculatedContext(_model, prompt, runtimeSettings.IncludeHiddenObjects);
+            if (!string.IsNullOrWhiteSpace(referencedCalculatedContext))
+            {
+                msgs.Add(new AiChatMessage("system", referencedCalculatedContext));
+            }
             msgs.AddRange(_conversation.TakeLast(10));
             msgs.Add(new AiChatMessage("user", prompt));
 
@@ -1642,6 +1647,8 @@ internal sealed class AppBridge
         {
             name = t.Name,
             isHidden = t.IsHidden,
+            tableType = t.TableType,
+            expression = t.Expression,
             measures = t.Measures.Select(ms => new
             {
                 name = ms.Name,
@@ -1655,7 +1662,8 @@ internal sealed class AppBridge
                 name = c.Name,
                 columnType = c.ColumnType,
                 dataType = c.DataType,
-                isHidden = c.IsHidden
+                isHidden = c.IsHidden,
+                expression = c.Expression
             }).ToArray()
         }).ToArray(),
         relationships = m.Relationships.Select(r => new

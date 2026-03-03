@@ -105,16 +105,31 @@ internal static class MetadataPromptBuilder
                 continue;
             }
 
-            sb.AppendLine($"[表] {table.Name}" + (table.IsHidden ? " (Hidden)" : string.Empty));
+            var tableType = string.IsNullOrWhiteSpace(table.TableType) ? "Unknown" : table.TableType;
+            sb.AppendLine($"[表] {table.Name} | 表类型: {tableType}" + (table.IsHidden ? " (Hidden)" : string.Empty));
+
+            if (string.Equals(tableType, "Calculated", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(table.Expression))
+            {
+                sb.AppendLine("  计算表 DAX:");
+                sb.AppendLine(IndentBlock(TruncateExpression(table.Expression, 1400), "    "));
+            }
 
             var columns = table.Columns
                 .Where(c => includeHiddenObjects || !c.IsHidden)
                 .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
-                .Select(c => $"  - 列: {c.Name} | 类型: {c.DataType} | 列类型: {c.ColumnType}" + (c.IsHidden ? " | Hidden" : string.Empty));
+                .ToList();
 
             foreach (var column in columns)
             {
-                sb.AppendLine(column);
+                sb.AppendLine($"  - 列: {column.Name} | 类型: {column.DataType} | 列类型: {column.ColumnType}" + (column.IsHidden ? " | Hidden" : string.Empty));
+
+                if (string.Equals(column.ColumnType, "Calculated", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(column.Expression))
+                {
+                    sb.AppendLine("    计算列 DAX:");
+                    sb.AppendLine(IndentBlock(TruncateExpression(column.Expression, 1000), "      "));
+                }
             }
 
             var measures = table.Measures
@@ -260,6 +275,70 @@ internal static class MetadataPromptBuilder
         return sb.ToString().TrimEnd();
     }
 
+    public static string BuildReferencedCalculatedContext(ModelMetadata metadata, string userPrompt, bool includeHiddenObjects)
+    {
+        if (string.IsNullOrWhiteSpace(userPrompt))
+        {
+            return string.Empty;
+        }
+
+        var prompt = userPrompt.Trim();
+        var rows = new List<(string Kind, string Name, string Expression)>();
+
+        foreach (var table in metadata.Tables)
+        {
+            if (!includeHiddenObjects && table.IsHidden)
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(table.Expression) &&
+                IsPromptMentioningObject(prompt, table.Name))
+            {
+                rows.Add(("计算表", table.Name, table.Expression));
+            }
+
+            foreach (var column in table.Columns)
+            {
+                if (!includeHiddenObjects && column.IsHidden)
+                {
+                    continue;
+                }
+
+                if (!string.Equals(column.ColumnType, "Calculated", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!IsPromptMentioningObject(prompt, table.Name, column.Name))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(column.Expression))
+                {
+                    rows.Add(("计算列", $"{table.Name}[{column.Name}]", column.Expression));
+                }
+            }
+        }
+
+        if (rows.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine("用户问题中疑似提到了以下计算对象，回答时请基于它们的真实 DAX：");
+        foreach (var row in rows.Take(8))
+        {
+            sb.AppendLine($"- {row.Kind}: {row.Name}");
+            sb.AppendLine("  DAX:");
+            sb.AppendLine(IndentBlock(TruncateExpression(row.Expression, 1400), "    "));
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
     private static bool IsPromptMentioningMeasure(string prompt, string tableName, string measureName)
     {
         if (string.IsNullOrWhiteSpace(measureName))
@@ -279,6 +358,47 @@ internal static class MetadataPromptBuilder
 
         return measureName.Length >= 2 &&
                prompt.Contains(measureName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPromptMentioningObject(string prompt, string tableName, string? columnOrMeasureName = null)
+    {
+        if (string.IsNullOrWhiteSpace(tableName))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(columnOrMeasureName))
+        {
+            if (prompt.Contains($"{tableName}[{columnOrMeasureName}]", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (prompt.Contains($"[{columnOrMeasureName}]", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (columnOrMeasureName.Length >= 2 &&
+                prompt.Contains(columnOrMeasureName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return tableName.Length >= 2 &&
+               prompt.Contains(tableName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string TruncateExpression(string expression, int maxLength)
+    {
+        var value = (expression ?? string.Empty).Trim();
+        if (value.Length <= maxLength)
+        {
+            return value;
+        }
+
+        return value[..maxLength] + Environment.NewLine + "...(已截断)";
     }
 
     private static string IndentBlock(string text, string indent)

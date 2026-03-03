@@ -1390,7 +1390,7 @@ function renderTree(model) {
       const measures = t.measures || [];
       const tableHit = searchMatches(term, [t.name]);
       const filteredColumns = term ? columns.filter(function(c) {
-        return tableHit || searchMatches(term, [c.name, c.columnType, c.dataType]);
+        return tableHit || searchMatches(term, [c.name, c.columnType, c.dataType, c.expression]);
       }) : columns;
       const filteredMeasures = term ? measures.filter(function(ms) {
         return tableHit || searchMatches(term, [ms.name, ms.displayFolder, ms.expression]);
@@ -1417,10 +1417,12 @@ function renderTree(model) {
         title: '表',
         rows: [
           ['名称', t.name],
+          ['表类型', t.tableType || ''],
           ['隐藏', t.isHidden ? '是' : '否'],
           ['字段数', columns.length],
           ['度量值数', measures.length]
-        ]
+        ],
+        dax: t.expression || ''
       });
 
       html += '<div class="tree-node"' + (t.isHidden ? ' style="opacity:.55"' : '') + ' data-action="toggle-table" data-table="' + esc(t.name) + '" data-tip-id="' + tableTip + '" draggable="true" data-insert="' + esc("'" + t.name + "'") + '">' +
@@ -1441,7 +1443,8 @@ function renderTree(model) {
             ['列类型', c.columnType || ''],
             ['数据类型', c.dataType || ''],
             ['隐藏', c.isHidden ? '是' : '否']
-          ]
+          ],
+          dax: c.expression || ''
         });
         html += '<div class="tree-node tree-col"' + (c.isHidden ? ' style="opacity:.55"' : '') + ' data-tip-id="' + colTip + '" draggable="true" data-insert="' + esc(c.name) + '">' +
           '<span class="tree-expand leaf">▶</span>' +
