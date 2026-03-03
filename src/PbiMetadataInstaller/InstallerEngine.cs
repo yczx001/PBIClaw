@@ -67,9 +67,9 @@ internal static class InstallerEngine
         Directory.CreateDirectory(normalizedInstallDir);
 
         var exePath = Path.Combine(normalizedInstallDir, ToolExeName);
-        if (IsExecutableRunning(exePath))
+        if (IsAnyToolProcessRunning())
         {
-            throw new InvalidOperationException("检测到正在运行的 PBIClaw.exe，请先关闭后再重试安装。");
+            throw new InvalidOperationException("检测到 PBIClaw 仍在运行，请先关闭所有 PBIClaw 进程后再重试安装。");
         }
 
         ExtractEmbeddedResource($"Payload.{ToolExeName}", exePath);
@@ -141,9 +141,8 @@ internal static class InstallerEngine
         stream.CopyTo(file);
     }
 
-    private static bool IsExecutableRunning(string targetExePath)
+    private static bool IsAnyToolProcessRunning()
     {
-        var normalizedTarget = Path.GetFullPath(targetExePath);
         var currentPid = Environment.ProcessId;
 
         foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(ToolExeName)))
@@ -156,15 +155,21 @@ internal static class InstallerEngine
                 }
 
                 var processPath = process.MainModule?.FileName;
-                if (!string.IsNullOrWhiteSpace(processPath) &&
-                    string.Equals(Path.GetFullPath(processPath), normalizedTarget, StringComparison.OrdinalIgnoreCase))
+                if (string.IsNullOrWhiteSpace(processPath))
+                {
+                    return true;
+                }
+
+                var fileName = Path.GetFileName(processPath);
+                if (string.Equals(fileName, ToolExeName, StringComparison.OrdinalIgnoreCase))
                 {
                     return true;
                 }
             }
             catch
             {
-                // Ignore inaccessible processes.
+                // Cannot inspect process details safely; block install to avoid false-success overwrite.
+                return true;
             }
             finally
             {

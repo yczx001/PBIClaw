@@ -207,7 +207,7 @@ internal sealed class SetupWizardForm : Form
                 await StartInstallAsync();
                 break;
             case SetupStep.Complete:
-                ExitCode = 0;
+                ExitCode = _result is null ? 1 : 0;
                 Close();
                 break;
         }
@@ -346,11 +346,11 @@ internal sealed class SetupWizardForm : Form
                 _ => "下一步"
             },
             canNext = _step != SetupStep.Installing,
-            result = _result is null ? null : new
+            result = _step == SetupStep.Complete && _result is not null ? new
             {
                 installDir = _result.InstallDir,
                 externalToolDirs = _result.ExternalToolDirs
-            }
+            } : null
         });
     }
 
