@@ -115,6 +115,26 @@ internal static class MetadataPromptBuilder
             {
                 sb.AppendLine($"  数据源: {table.DataSourceName}");
             }
+            if (HasUsableValue(table.SourceSystemType))
+            {
+                sb.AppendLine($"  来源系统: {table.SourceSystemType}");
+            }
+            if (!string.IsNullOrWhiteSpace(table.SourceServer))
+            {
+                sb.AppendLine($"  来源服务器: {table.SourceServer}");
+            }
+            if (!string.IsNullOrWhiteSpace(table.SourceDatabase))
+            {
+                sb.AppendLine($"  来源数据库: {table.SourceDatabase}");
+            }
+            if (!string.IsNullOrWhiteSpace(table.SourceSchema))
+            {
+                sb.AppendLine($"  来源架构: {table.SourceSchema}");
+            }
+            if (!string.IsNullOrWhiteSpace(table.SourceObjectName))
+            {
+                sb.AppendLine($"  来源对象: {table.SourceObjectName}");
+            }
 
             if (string.Equals(tableType, "Calculated", StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrWhiteSpace(table.Expression))
@@ -347,7 +367,16 @@ internal static class MetadataPromptBuilder
         }
 
         var prompt = userPrompt.Trim();
-        var rows = new List<(string Table, string SourceType, string DataSourceName, string SourceExpression)>();
+        var rows = new List<(
+            string Table,
+            string SourceType,
+            string DataSourceName,
+            string SourceSystemType,
+            string SourceServer,
+            string SourceDatabase,
+            string SourceSchema,
+            string SourceObjectName,
+            string SourceExpression)>();
 
         foreach (var table in metadata.Tables)
         {
@@ -366,7 +395,16 @@ internal static class MetadataPromptBuilder
                 continue;
             }
 
-            rows.Add((table.Name, table.SourceType, table.DataSourceName, table.SourceExpression));
+            rows.Add((
+                table.Name,
+                table.SourceType,
+                table.DataSourceName,
+                table.SourceSystemType,
+                table.SourceServer,
+                table.SourceDatabase,
+                table.SourceSchema,
+                table.SourceObjectName,
+                table.SourceExpression));
         }
 
         if (rows.Count == 0)
@@ -386,6 +424,26 @@ internal static class MetadataPromptBuilder
             if (!string.IsNullOrWhiteSpace(row.DataSourceName))
             {
                 sb.AppendLine($"  数据源: {row.DataSourceName}");
+            }
+            if (HasUsableValue(row.SourceSystemType))
+            {
+                sb.AppendLine($"  来源系统: {row.SourceSystemType}");
+            }
+            if (!string.IsNullOrWhiteSpace(row.SourceServer))
+            {
+                sb.AppendLine($"  来源服务器: {row.SourceServer}");
+            }
+            if (!string.IsNullOrWhiteSpace(row.SourceDatabase))
+            {
+                sb.AppendLine($"  来源数据库: {row.SourceDatabase}");
+            }
+            if (!string.IsNullOrWhiteSpace(row.SourceSchema))
+            {
+                sb.AppendLine($"  来源架构: {row.SourceSchema}");
+            }
+            if (!string.IsNullOrWhiteSpace(row.SourceObjectName))
+            {
+                sb.AppendLine($"  来源对象: {row.SourceObjectName}");
             }
             sb.AppendLine("  查询脚本:");
             sb.AppendLine(IndentBlock(row.SourceExpression, "    "));
@@ -457,4 +515,8 @@ internal static class MetadataPromptBuilder
             .Split('\n')
             .Select(line => indent + line));
     }
+
+    private static bool HasUsableValue(string? value)
+        => !string.IsNullOrWhiteSpace(value) &&
+           !string.Equals(value, "Unknown", StringComparison.OrdinalIgnoreCase);
 }

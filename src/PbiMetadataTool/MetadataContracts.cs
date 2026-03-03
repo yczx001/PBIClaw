@@ -17,7 +17,12 @@ public sealed record TableMetadata(
     string Expression = "",
     string SourceType = "",
     string SourceExpression = "",
-    string DataSourceName = "");
+    string DataSourceName = "",
+    string SourceSystemType = "",
+    string SourceServer = "",
+    string SourceDatabase = "",
+    string SourceSchema = "",
+    string SourceObjectName = "");
 
 public sealed record ColumnMetadata(
     string Name,

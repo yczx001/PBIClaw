@@ -17,6 +17,7 @@ internal sealed class AppBridge
     private const int MaxHistoryEntries = 500;
     private const string ReleaseManifestUrl = "https://pbihub.cn/downloads/PBIClaw/latest.json";
     private const string ReleasePageUrl = "https://pbihub.cn/downloads/PBIClaw/";
+    private const int ChatRequestTimeoutSeconds = 180;
     private static readonly JsonSerializerOptions HistoryJsonOptions = new() { WriteIndented = true };
     private static readonly HttpClient UpdateHttpClient = CreateUpdateHttpClient();
 
@@ -44,6 +45,7 @@ internal sealed class AppBridge
     private AbiActionPlan? _preflightPlan; // plan waiting for user confirmation
     private bool _preflightIsRollback;
     private bool _externalToolAutoConnectAttempted;
+    private bool _chatCancelRequestedByUser;
     private CancellationTokenSource? _chatCts;
     private string _connectedModelDisplayName = string.Empty;
     private string _currentBackupModelKey = string.Empty;
@@ -82,6 +84,7 @@ internal sealed class AppBridge
                 case "connect":     OnConnect(payload); break;
                 case "windowControl": OnWindowControl(payload); break;
                 case "chat":        _ = OnChatAsync(payload); break;
+                case "cancelChat":  OnCancelChat(); break;
                 case "testConnection": _ = OnTestConnectionAsync(payload); break;
                 case "discardPlan": OnDiscardPlan(); break;
                 case "executePlan": OnExecutePlan(payload); break;
@@ -216,7 +219,9 @@ internal sealed class AppBridge
 
         _chatCts?.Cancel();
         _chatCts?.Dispose();
-        _chatCts = new CancellationTokenSource();
+        _chatCancelRequestedByUser = false;
+        var chatCts = new CancellationTokenSource(TimeSpan.FromSeconds(ChatRequestTimeoutSeconds));
+        _chatCts = chatCts;
 
         try
         {
@@ -249,7 +254,7 @@ internal sealed class AppBridge
             msgs.AddRange(_conversation.TakeLast(10));
             msgs.Add(new AiChatMessage("user", prompt));
 
-            var reply = await _chatClient.CompleteAsync(new AiChatRequest(runtimeSettings, msgs), _chatCts.Token);
+            var reply = await _chatClient.CompleteAsync(new AiChatRequest(runtimeSettings, msgs), chatCts.Token);
 
             _conversation.Add(new AiChatMessage("user", prompt));
             _conversation.Add(new AiChatMessage("assistant", reply));
@@ -274,10 +279,41 @@ internal sealed class AppBridge
                     actionCount: plan.Actions.Count);
             }
         }
-        catch (OperationCanceledException) { /* cancelled */ }
+        catch (OperationCanceledException)
+        {
+            if (_chatCancelRequestedByUser)
+            {
+                _chatCancelRequestedByUser = false;
+                return;
+            }
+
+            Send("chatError", new { error = $"AI 请求超时（{ChatRequestTimeoutSeconds} 秒），请重试或缩小问题范围。" });
+        }
         catch (Exception ex)
         {
             Send("chatError", new { error = ex.Message });
+        }
+        finally
+        {
+            if (ReferenceEquals(_chatCts, chatCts))
+            {
+                _chatCts = null;
+            }
+
+            chatCts.Dispose();
+        }
+    }
+
+    private void OnCancelChat()
+    {
+        try
+        {
+            _chatCancelRequestedByUser = true;
+            _chatCts?.Cancel();
+        }
+        catch
+        {
+            // Ignore cancellation errors.
         }
     }
 
@@ -1143,12 +1179,44 @@ internal sealed class AppBridge
 
         try
         {
-            return _onDemandContextBuilder.Build(connectionString, _model.DatabaseName, _model, prompt, includeHiddenObjects);
+            return _onDemandContextBuilder.Build(
+                connectionString,
+                _model.DatabaseName,
+                _model,
+                prompt,
+                includeHiddenObjects,
+                ResolveCurrentModelSourcePath());
         }
         catch
         {
             return string.Empty;
         }
+    }
+
+    private string? ResolveCurrentModelSourcePath()
+    {
+        if (_currentPort.HasValue)
+        {
+            try
+            {
+                var hit = _detector.DiscoverInstances().FirstOrDefault(i => i.Port == _currentPort.Value);
+                if (hit is not null && !string.IsNullOrWhiteSpace(hit.PbixPathHint))
+                {
+                    return hit.PbixPathHint;
+                }
+            }
+            catch
+            {
+                // Ignore and fallback to report path.
+            }
+        }
+
+        if (_report is not null && !string.IsNullOrWhiteSpace(_report.SourcePath))
+        {
+            return _report.SourcePath;
+        }
+
+        return null;
     }
 
     private void SendConnectedModel()
@@ -1690,6 +1758,11 @@ internal sealed class AppBridge
             sourceType = t.SourceType,
             sourceExpression = t.SourceExpression,
             dataSourceName = t.DataSourceName,
+            sourceSystemType = t.SourceSystemType,
+            sourceServer = t.SourceServer,
+            sourceDatabase = t.SourceDatabase,
+            sourceSchema = t.SourceSchema,
+            sourceObjectName = t.SourceObjectName,
             measures = t.Measures.Select(ms => new
             {
                 name = ms.Name,

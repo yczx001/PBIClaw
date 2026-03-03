@@ -18,6 +18,12 @@
   --text: #e2e8f0;
   --text2: #8892a4;
   --text3: #4a5568;
+  --code-bg: linear-gradient(180deg, #161b2a, #121723);
+  --code-border: #2f3a5d;
+  --code-text: #dbe7ff;
+  --inline-code-bg: rgba(79, 142, 247, .16);
+  --inline-code-border: rgba(128, 170, 255, .36);
+  --inline-code-text: #dbe7ff;
   --nav-w: 56px;
   --font: 'Microsoft YaHei UI', 'Segoe UI', system-ui, sans-serif;
   --mono: 'Cascadia Code', 'Consolas', monospace;
@@ -35,6 +41,12 @@ html[data-theme='light'] {
   --text: #1a1a2e;
   --text2: #5a6070;
   --text3: #9aa0b0;
+  --code-bg: linear-gradient(180deg, #f9fbff, #eef4ff);
+  --code-border: #cad9f4;
+  --code-text: #1d2f51;
+  --inline-code-bg: rgba(0, 120, 212, .10);
+  --inline-code-border: rgba(0, 120, 212, .24);
+  --inline-code-text: #134171;
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; }
@@ -72,8 +84,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .topbar-btn:hover { border-color: var(--accent); background: rgba(79,142,247,.08); }
 .topbar-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .topbar-btn.primary:hover { background: #6ba3ff; }
-#btn-test-settings.test-ok { border-color: rgba(34,197,94,.45); background: rgba(34,197,94,.14); color: var(--success); }
-#btn-test-settings.test-fail { border-color: rgba(239,68,68,.45); background: rgba(239,68,68,.12); color: var(--danger); }
 #btn-test-settings.testing { border-color: rgba(79,142,247,.45); background: rgba(79,142,247,.12); color: var(--accent); }
 .window-controls { display: inline-flex; gap: 4px; margin-left: 2px; }
 .win-btn { width: 30px; height: 26px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); font-size: 12px; line-height: 1; cursor: pointer; }
@@ -114,8 +124,11 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .msg.user .msg-bubble { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; border-bottom-right-radius: 4px; }
 .msg.assistant .msg-bubble { background: var(--surface2); border: 1px solid var(--border); border-bottom-left-radius: 4px; color: var(--text); }
 .msg.system .msg-bubble { background: rgba(79,142,247,.06); border: 1px solid rgba(79,142,247,.2); color: var(--text2); font-size: 12px; border-radius: 8px; padding: 8px 14px; }
-.msg-bubble pre { background: rgba(0,0,0,.3); border-radius: 6px; padding: 10px; margin: 8px 0; overflow-x: auto; font-family: var(--mono); font-size: 12px; }
-.msg-bubble code { font-family: var(--mono); font-size: 12px; background: rgba(0,0,0,.25); padding: 1px 5px; border-radius: 3px; }
+.msg-bubble pre { background: var(--code-bg); border: 1px solid var(--code-border); color: var(--code-text); border-radius: 8px; padding: 10px 12px; margin: 8px 0; overflow-x: auto; font-family: var(--mono); font-size: 12px; line-height: 1.55; box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
+.msg-bubble pre code { font-family: inherit; font-size: inherit; color: inherit; background: transparent; border: none; padding: 0; border-radius: 0; }
+.msg-bubble code { font-family: var(--mono); font-size: 12px; background: var(--inline-code-bg); color: var(--inline-code-text); border: 1px solid var(--inline-code-border); padding: 1px 6px; border-radius: 4px; }
+.msg.user .msg-bubble pre { background: rgba(255,255,255,.15); border-color: rgba(255,255,255,.35); color: #fff; }
+.msg.user .msg-bubble code { background: rgba(255,255,255,.24); border-color: rgba(255,255,255,.44); color: #fff; }
 .msg-bubble h1,.msg-bubble h2,.msg-bubble h3,.msg-bubble h4,.msg-bubble h5,.msg-bubble h6 { margin: 8px 0 6px; line-height: 1.35; color: var(--text); }
 .msg-bubble h1 { font-size: 18px; }
 .msg-bubble h2 { font-size: 16px; }
@@ -140,6 +153,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 #chat-input.drag-over { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(79,142,247,.18); }
 .send-btn { width: 46px; height: 46px; border-radius: 10px; border: none; background: var(--accent); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px; transition: background .15s; flex-shrink: 0; }
 .send-btn:hover { background: #6ba3ff; }
+.send-btn.sending { background: var(--danger); }
+.send-btn.sending:hover { background: #f87171; }
 .send-btn:disabled { background: var(--surface2); color: var(--text3); cursor: not-allowed; }
 
 /* ── Writeback Page ── */
@@ -228,6 +243,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .save-btn:hover { background: #6ba3ff; }
 .save-btn:disabled { opacity: .65; cursor: not-allowed; }
 .settings-actions { display: flex; justify-content: flex-start; align-items: center; gap: 8px; margin-top: 4px; }
+.test-conn-status { font-size: 12px; color: var(--text2); line-height: 1.4; min-height: 17px; }
+.test-conn-status.testing { color: var(--accent); }
+.test-conn-status.success { color: var(--success); }
+.test-conn-status.fail { color: var(--danger); }
 .setting-credit { margin-top: 4px; font-size: 11px; color: var(--text3); }
 .setting-credit a { color: inherit; text-decoration: none; }
 .setting-credit a:hover { color: var(--accent); }
@@ -694,6 +713,7 @@ select.setting-input { cursor: pointer; }
 
           <div class="settings-actions">
             <button class="topbar-btn" id="btn-test-settings">测试连接</button>
+            <span class="test-conn-status" id="test-conn-status">未测试</span>
           </div>
 
         </div>
@@ -851,6 +871,8 @@ const State = {
   instances: [], pendingPlan: null, backups: [], settings: {}, planHistory: [],
   selectedBackupPath: null, connectMode: 'pbi',
   instanceScanInProgress: false, instanceScanToastPending: false,
+  chatSending: false,
+  chatFollowupHint: '',
   appVersion: '1.0.0',
   updateInfo: null,
   model: null, modelTab: 'tables', modelSearch: '', expandedTables: {}, expandedMeasureTables: {}, expandedMeasureFolders: {}, expandedRoles: {},
@@ -892,6 +914,9 @@ const AI_PROVIDER_PRESETS = {
     apiKeyPlaceholder: 'sk-ant-...'
   }
 };
+
+const SEND_BUTTON_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
+const STOP_BUTTON_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>';
 
 function normalizeProvider(provider) {
   return provider === 'anthropic' ? 'anthropic' : 'openai';
@@ -1258,7 +1283,21 @@ function updateChips() {
   } else {
     modelChip.style.display = 'none';
   }
-  document.getElementById('btn-send').disabled = !State.connected;
+  updateSendButtonState();
+}
+
+function updateSendButtonState() {
+  const btn = document.getElementById('btn-send');
+  if (!btn) return;
+
+  const sending = !!State.chatSending;
+  const canSend = !!State.connected;
+
+  btn.disabled = !sending && !canSend;
+  btn.classList.toggle('sending', sending);
+  btn.innerHTML = sending ? STOP_BUTTON_ICON : SEND_BUTTON_ICON;
+  btn.title = sending ? '停止本次发送' : '发送消息';
+  btn.setAttribute('aria-label', sending ? '停止本次发送' : '发送消息');
 }
 
 // Tree
@@ -1926,6 +1965,8 @@ function appendPlanDetectedMsg(actionCount, autoStarted) {
 }
 function showThinking() {
   const area = document.getElementById('chat-area');
+  State.chatSending = true;
+  updateSendButtonState();
   thinkingEl = document.createElement('div');
   thinkingEl.className = 'msg assistant';
   thinkingEl.innerHTML = '<div class="msg-avatar">A</div><div class="msg-bubble thinking"><span></span><span></span><span></span></div>';
@@ -1933,6 +1974,8 @@ function showThinking() {
   area.scrollTop = area.scrollHeight;
 }
 function hideThinking() {
+  State.chatSending = false;
+  updateSendButtonState();
   if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
 }
 
@@ -1975,6 +2018,7 @@ function renderQuickPrompts(prompts) {
 
 // Send
 function sendChat() {
+  if (State.chatSending) return;
   const input = document.getElementById('chat-input');
   const text = input.value.trim();
   if (!text) return;
@@ -1988,15 +2032,41 @@ function sendChat() {
     allowModelChanges: getToggle('ts-allow'),
     includeHiddenObjects: getToggle('ts-hidden')
   };
+  setFollowupHint('');
   input.value = '';
   autoResize(input);
   appendMsg('user', text);
   showThinking();
   bridge.send('chat', { prompt: text, runtimeSettings: runtimeSettings });
 }
-document.getElementById('btn-send').addEventListener('click', sendChat);
+function cancelChat() {
+  if (!State.chatSending) return;
+  bridge.send('cancelChat', {});
+  hideThinking();
+}
+function onSendButtonClick() {
+  if (State.chatSending) {
+    cancelChat();
+    return;
+  }
+  sendChat();
+}
+document.getElementById('btn-send').addEventListener('click', onSendButtonClick);
 document.getElementById('chat-input').addEventListener('keydown', function(e) {
   if (e.isComposing) return;
+  if (e.key === 'Tab' && !e.shiftKey) {
+    const input = e.currentTarget;
+    const hint = String(State.chatFollowupHint || '').trim();
+    if (hint && !String(input.value || '').trim()) {
+      e.preventDefault();
+      input.value = hint;
+      input.focus();
+      input.selectionStart = input.value.length;
+      input.selectionEnd = input.value.length;
+      autoResize(input);
+      return;
+    }
+  }
   const mode = State.uiPrefs.sendShortcut || 'ctrl_enter';
   if (mode === 'enter') {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -2388,7 +2458,8 @@ function renderAboutVersion() {
     el.textContent = 'v1.0.0';
     return;
   }
-  el.textContent = raw.toLowerCase().startsWith('v') ? raw : ('v' + raw);
+  const withoutBuildMeta = raw.split('+')[0].trim();
+  el.textContent = withoutBuildMeta.toLowerCase().startsWith('v') ? withoutBuildMeta : ('v' + withoutBuildMeta);
 }
 
 function setAboutUpdateStatus(text) {
@@ -2406,11 +2477,43 @@ function setUpgradeButtonEnabled(enabled) {
 function updateChatInputHint() {
   const input = document.getElementById('chat-input');
   if (!input) return;
+  const followupHint = String(State.chatFollowupHint || '').trim();
+  if (followupHint) {
+    input.placeholder = '追问建议（Tab 采用）: ' + followupHint;
+    return;
+  }
   if (State.uiPrefs.sendShortcut === 'enter') {
     input.placeholder = '输入问题，Enter 发送，Shift+Enter 换行…';
   } else {
     input.placeholder = '输入问题，Ctrl+Enter 发送…';
   }
+}
+
+function normalizeFollowupHint(text) {
+  const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return '';
+  if (cleaned.length <= 88) return cleaned;
+  return cleaned.slice(0, 86) + '…';
+}
+
+function buildFollowupHint(replyText) {
+  const text = String(replyText || '');
+  const lower = text.toLowerCase();
+  if (lower.includes('dax') || lower.includes('计算列') || lower.includes('计算表') || lower.includes('度量值')) {
+    return '请基于上面的 DAX，逐段解释逻辑并给出可优化点。';
+  }
+  if (lower.includes('power query') || lower.includes('m代码') || lower.includes('数据来源')) {
+    return '请继续说明这个表的数据来源，列出库、Schema、表名和关键过滤步骤。';
+  }
+  if (lower.includes('关系') || lower.includes('relationship')) {
+    return '请继续给出关系风险清单，并说明每项的验证步骤。';
+  }
+  return '请基于上面的结论给我一个可执行的下一步清单。';
+}
+
+function setFollowupHint(text) {
+  State.chatFollowupHint = normalizeFollowupHint(text);
+  updateChatInputHint();
 }
 
 document.getElementById('btn-check-update').addEventListener('click', function() {
@@ -2560,38 +2663,46 @@ function setTestButtonBusy(busy) {
   const btn = document.getElementById('btn-test-settings');
   if (!btn) return;
   btn.disabled = !!busy;
+  btn.textContent = '测试连接';
+  btn.title = '';
   if (busy) {
-    btn.classList.remove('test-ok', 'test-fail');
     btn.classList.add('testing');
-    btn.textContent = '测试中...';
-    btn.title = '';
+    setTestConnectionStatus('testing', '测试中...');
     return;
   }
 
   btn.classList.remove('testing');
-  if (!btn.classList.contains('test-ok') && !btn.classList.contains('test-fail')) {
-    btn.textContent = '测试连接';
-    btn.title = '';
-  }
 }
 
 function setTestConnectionResult(ok, message) {
   const btn = document.getElementById('btn-test-settings');
   if (!btn) return;
   btn.classList.remove('testing');
-  btn.classList.toggle('test-ok', !!ok);
-  btn.classList.toggle('test-fail', !ok);
   btn.disabled = false;
-  btn.textContent = ok ? '测试成功，点击重试' : '测试失败，点击重试';
-  btn.title = String(message || '');
+  btn.textContent = '测试连接';
+  btn.title = '';
+  setTestConnectionStatus(ok ? 'success' : 'fail', String(message || (ok ? '连接测试成功' : '连接测试失败')));
 }
 
 function resetTestConnectionResult() {
   const btn = document.getElementById('btn-test-settings');
   if (!btn) return;
-  btn.classList.remove('testing', 'test-ok', 'test-fail');
+  btn.classList.remove('testing');
   btn.textContent = '测试连接';
   btn.title = '';
+  setTestConnectionStatus('', '未测试');
+}
+
+function setTestConnectionStatus(type, message) {
+  const status = document.getElementById('test-conn-status');
+  if (!status) return;
+  status.classList.remove('testing', 'success', 'fail');
+  if (type) {
+    status.classList.add(type);
+  }
+  const text = String(message || '').trim();
+  status.textContent = text;
+  status.title = text;
 }
 
 document.getElementById('btn-test-settings').addEventListener('click', function() {
@@ -2665,6 +2776,7 @@ const App = {
       case 'chatReply':
         hideThinking();
         appendMsg('assistant', msg.payload.text);
+        setFollowupHint(buildFollowupHint(msg.payload.text));
         break;
       case 'chatError':
         hideThinking();
@@ -2767,6 +2879,7 @@ renderQuickPrompts(DEFAULT_QUICK_PROMPTS);
 renderPlanHistory([]);
 syncAutoExecuteCheckbox();
 autoResize(document.getElementById('chat-input'));
+updateSendButtonState();
 
 // Init — wait for WebView2 channel to be ready
 function sendReady() {

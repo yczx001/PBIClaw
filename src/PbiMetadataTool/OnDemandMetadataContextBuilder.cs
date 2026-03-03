@@ -5,7 +5,9 @@ namespace PbiMetadataTool;
 
 internal sealed class OnDemandMetadataContextBuilder
 {
-    public string Build(string connectionString, string? databaseName, ModelMetadata modelSnapshot, string userPrompt, bool includeHiddenObjects)
+    private readonly PowerQueryMetadataReader _powerQueryReader = new();
+
+    public string Build(string connectionString, string? databaseName, ModelMetadata modelSnapshot, string userPrompt, bool includeHiddenObjects, string? modelSourcePath)
     {
         if (string.IsNullOrWhiteSpace(connectionString) || string.IsNullOrWhiteSpace(userPrompt))
         {
@@ -41,6 +43,7 @@ internal sealed class OnDemandMetadataContextBuilder
             if (intent.IncludeDataSources)
             {
                 AppendDataSourcesSection(model, sb);
+                AppendPowerQueryQueriesSection(modelSnapshot, modelSourcePath, sb);
             }
 
             if (intent.IncludeExpressions)
@@ -103,7 +106,19 @@ internal sealed class OnDemandMetadataContextBuilder
         var text = prompt.Trim();
         var mentionedTables = FindMentionedTables(modelSnapshot, text);
 
-        var includeAllTables = ContainsAny(text, "全部", "所有", "完整", "全量", "all metadata", "full metadata", "tmdl");
+        var includeAllTables = ContainsAny(
+            text,
+            "全部",
+            "所有",
+            "完整",
+            "全量",
+            "每张",
+            "每个表",
+            "all metadata",
+            "full metadata",
+            "each table",
+            "per table",
+            "tmdl");
         var includeModel = includeAllTables || ContainsAny(text, "模型", "model", "兼容级别", "compatibility", "annotation", "注解");
         var includeDataSources = includeAllTables || ContainsAny(text, "power query", "m代码", "m code", "数据来源", "数据源", "query", "source");
         var includeRelationships = includeAllTables || ContainsAny(text, "关系", "relationship", "cardinality", "cross filter", "security filtering");
@@ -112,10 +127,6 @@ internal sealed class OnDemandMetadataContextBuilder
         var includeCultures = includeAllTables || ContainsAny(text, "culture", "translation", "翻译", "本地化");
         var includeExpressions = includeAllTables || ContainsAny(text, "named expression", "model expression", "表达式");
         var includeCalculationGroups = includeAllTables || ContainsAny(text, "计算组", "calculation group", "calculation item");
-
-        var includeTablesByKeyword = includeAllTables || ContainsAny(
-            text,
-            "表", "table", "列", "column", "字段", "measure", "度量值", "hierarchy", "层级", "partition", "分区", "dax");
 
         return new QueryIntent(
             IncludeModel: includeModel,
@@ -126,7 +137,7 @@ internal sealed class OnDemandMetadataContextBuilder
             IncludeCultures: includeCultures,
             IncludeExpressions: includeExpressions,
             IncludeCalculationGroups: includeCalculationGroups,
-            IncludeAllTables: includeAllTables || (includeTablesByKeyword && mentionedTables.Count > 0),
+            IncludeAllTables: includeAllTables,
             MentionedTables: mentionedTables);
     }
 
@@ -206,6 +217,44 @@ internal sealed class OnDemandMetadataContextBuilder
         }
     }
 
+    private void AppendPowerQueryQueriesSection(ModelMetadata modelSnapshot, string? modelSourcePath, StringBuilder sb)
+    {
+        var loadedTableNames = modelSnapshot.Tables
+            .Where(table => string.Equals(table.SourceType, "PowerQuery", StringComparison.OrdinalIgnoreCase))
+            .Select(table => table.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var queries = _powerQueryReader.TryReadQueries(modelSourcePath, loadedTableNames);
+        if (queries.Count == 0)
+        {
+            return;
+        }
+
+        var unloadedCount = queries.Count(query => !query.IsLoadedToModel);
+        sb.AppendLine();
+        sb.AppendLine($"Power Query 查询 ({queries.Count})：未加载 {unloadedCount}");
+        foreach (var query in queries.OrderBy(q => q.Name, StringComparer.OrdinalIgnoreCase).Take(80))
+        {
+            sb.AppendLine($"- 名称: {query.Name}" + (query.IsLoadedToModel ? " | 已加载到模型" : " | 未加载到模型"));
+            if (query.IsParameter)
+            {
+                sb.AppendLine("  类型: 参数查询");
+            }
+            else if (query.IsFunction)
+            {
+                sb.AppendLine("  类型: 函数查询");
+            }
+
+            AppendIfNotEmpty(sb, "  ", "来源系统", NormalizeUnknown(query.SourceSystemType));
+            AppendIfNotEmpty(sb, "  ", "来源服务器", query.SourceServer);
+            AppendIfNotEmpty(sb, "  ", "来源数据库", query.SourceDatabase);
+            AppendIfNotEmpty(sb, "  ", "来源架构", query.SourceSchema);
+            AppendIfNotEmpty(sb, "  ", "来源对象", query.SourceObjectName);
+            AppendIfNotEmpty(sb, "  ", "M 代码", query.Expression);
+        }
+    }
+
     private static void AppendModelExpressionsSection(Model model, StringBuilder sb)
     {
         var expressions = GetEnumerableProperty(model, "Expressions").ToList();
@@ -228,10 +277,18 @@ internal sealed class OnDemandMetadataContextBuilder
 
     private static void AppendTableSection(Table table, bool includeHiddenObjects, StringBuilder sb)
     {
+        var tableSourceInfo = ResolveTableSourceInfo(table);
         sb.AppendLine();
         sb.AppendLine($"[表] {table.Name}");
         AppendIfNotEmpty(sb, "  ", "隐藏", table.IsHidden ? "是" : "否");
         AppendIfNotEmpty(sb, "  ", "表类型", ResolvePartitionSourceType(table.Partitions.FirstOrDefault()?.Source));
+        AppendIfNotEmpty(sb, "  ", "来源类型", tableSourceInfo.SourceType);
+        AppendIfNotEmpty(sb, "  ", "数据源", tableSourceInfo.DataSourceName);
+        AppendIfNotEmpty(sb, "  ", "来源系统", NormalizeUnknown(tableSourceInfo.Lineage.SystemType));
+        AppendIfNotEmpty(sb, "  ", "来源服务器", tableSourceInfo.Lineage.Server);
+        AppendIfNotEmpty(sb, "  ", "来源数据库", tableSourceInfo.Lineage.Database);
+        AppendIfNotEmpty(sb, "  ", "来源架构", tableSourceInfo.Lineage.Schema);
+        AppendIfNotEmpty(sb, "  ", "来源对象", tableSourceInfo.Lineage.ObjectName);
         AppendIfNotEmpty(sb, "  ", "描述", table.Description);
         AppendAnnotations(table, sb, "  ");
 
@@ -248,11 +305,21 @@ internal sealed class OnDemandMetadataContextBuilder
         sb.AppendLine($"  分区 ({partitions.Count}):");
         foreach (var partition in partitions.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
         {
+            var sourceType = ResolvePartitionSourceType(partition.Source);
+            var dataSourceName = ResolvePartitionDataSourceName(partition.Source);
+            var sourceExpression = ResolvePartitionSourceExpression(partition.Source);
+            var lineage = QuerySourceParser.Parse(sourceType, sourceExpression, dataSourceName);
+
             sb.AppendLine($"  - 名称: {partition.Name}");
             AppendIfNotEmpty(sb, "    ", "模式", partition.Mode.ToString());
-            AppendIfNotEmpty(sb, "    ", "来源类型", ResolvePartitionSourceType(partition.Source));
-            AppendIfNotEmpty(sb, "    ", "数据源", ResolvePartitionDataSourceName(partition.Source));
-            AppendIfNotEmpty(sb, "    ", "查询脚本", ResolvePartitionSourceExpression(partition.Source));
+            AppendIfNotEmpty(sb, "    ", "来源类型", sourceType);
+            AppendIfNotEmpty(sb, "    ", "数据源", dataSourceName);
+            AppendIfNotEmpty(sb, "    ", "来源系统", NormalizeUnknown(lineage.SystemType));
+            AppendIfNotEmpty(sb, "    ", "来源服务器", lineage.Server);
+            AppendIfNotEmpty(sb, "    ", "来源数据库", lineage.Database);
+            AppendIfNotEmpty(sb, "    ", "来源架构", lineage.Schema);
+            AppendIfNotEmpty(sb, "    ", "来源对象", lineage.ObjectName);
+            AppendIfNotEmpty(sb, "    ", "查询脚本", sourceExpression);
             AppendAnnotations(partition, sb, "    ");
         }
     }
@@ -671,6 +738,18 @@ internal sealed class OnDemandMetadataContextBuilder
         return string.Empty;
     }
 
+    private static string NormalizeUnknown(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        return string.Equals(value, "Unknown", StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : value;
+    }
+
     private static bool ContainsAny(string input, params string[] keywords)
         => keywords.Any(keyword => ContainsIgnoreCase(input, keyword));
 
@@ -695,6 +774,44 @@ internal sealed class OnDemandMetadataContextBuilder
         }
 
         return objectName.Length >= 2 && ContainsIgnoreCase(prompt, objectName);
+    }
+
+    private static (string SourceType, string DataSourceName, string SourceExpression, SourceLineageInfo Lineage) ResolveTableSourceInfo(Table table)
+    {
+        if (table.Partitions.Count == 0)
+        {
+            var emptyLineage = QuerySourceParser.Parse(string.Empty, string.Empty, string.Empty);
+            return (string.Empty, string.Empty, string.Empty, emptyLineage);
+        }
+
+        var sourceType = string.Empty;
+        var dataSourceName = string.Empty;
+        var sourceExpression = string.Empty;
+
+        foreach (var partition in table.Partitions)
+        {
+            if (string.IsNullOrWhiteSpace(sourceType))
+            {
+                sourceType = ResolvePartitionSourceType(partition.Source);
+            }
+
+            if (string.IsNullOrWhiteSpace(dataSourceName))
+            {
+                dataSourceName = ResolvePartitionDataSourceName(partition.Source);
+            }
+
+            if (string.IsNullOrWhiteSpace(sourceExpression))
+            {
+                sourceExpression = ResolvePartitionSourceExpression(partition.Source);
+            }
+
+            if (!string.IsNullOrWhiteSpace(dataSourceName) && !string.IsNullOrWhiteSpace(sourceExpression))
+            {
+                break;
+            }
+        }
+
+        return (sourceType, dataSourceName, sourceExpression, QuerySourceParser.Parse(sourceType, sourceExpression, dataSourceName));
     }
 
     private static string ResolvePartitionSourceType(PartitionSource? source)

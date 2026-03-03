@@ -49,7 +49,12 @@ internal sealed class TabularMetadataReader
                         Expression: ResolveCalculatedTableExpression(table),
                         SourceType: sourceInfo.SourceType,
                         SourceExpression: sourceInfo.SourceExpression,
-                        DataSourceName: sourceInfo.DataSourceName);
+                        DataSourceName: sourceInfo.DataSourceName,
+                        SourceSystemType: sourceInfo.SourceSystemType,
+                        SourceServer: sourceInfo.SourceServer,
+                        SourceDatabase: sourceInfo.SourceDatabase,
+                        SourceSchema: sourceInfo.SourceSchema,
+                        SourceObjectName: sourceInfo.SourceObjectName);
                 })
                 .ToList();
 
@@ -241,11 +246,19 @@ internal sealed class TabularMetadataReader
         return string.Empty;
     }
 
-    private static (string SourceType, string SourceExpression, string DataSourceName) ResolveTableSourceInfo(Table table)
+    private static (
+        string SourceType,
+        string SourceExpression,
+        string DataSourceName,
+        string SourceSystemType,
+        string SourceServer,
+        string SourceDatabase,
+        string SourceSchema,
+        string SourceObjectName) ResolveTableSourceInfo(Table table)
     {
         if (table.Partitions.Count == 0)
         {
-            return ("Unknown", string.Empty, string.Empty);
+            return ("Unknown", string.Empty, string.Empty, "Unknown", string.Empty, string.Empty, string.Empty, string.Empty);
         }
 
         string sourceType = "Unknown";
@@ -281,7 +294,16 @@ internal sealed class TabularMetadataReader
             }
         }
 
-        return (sourceType, sourceExpression, dataSourceName);
+        var lineage = QuerySourceParser.Parse(sourceType, sourceExpression, dataSourceName);
+        return (
+            sourceType,
+            sourceExpression,
+            dataSourceName,
+            lineage.SystemType,
+            lineage.Server,
+            lineage.Database,
+            lineage.Schema,
+            lineage.ObjectName);
     }
 
     private static string ResolvePartitionSourceType(PartitionSource? source)
