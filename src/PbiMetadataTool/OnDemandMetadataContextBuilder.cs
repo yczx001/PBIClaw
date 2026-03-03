@@ -6,6 +6,11 @@ namespace PbiMetadataTool;
 internal sealed class OnDemandMetadataContextBuilder
 {
     private readonly PowerQueryMetadataReader _powerQueryReader = new();
+    private readonly object _powerQueryCacheLock = new();
+    private string _powerQueryCacheKey = string.Empty;
+    private DateTime _powerQueryCacheAtUtc = DateTime.MinValue;
+    private IReadOnlyList<PowerQueryQueryMetadata> _powerQueryCachedQueries = Array.Empty<PowerQueryQueryMetadata>();
+    private static readonly TimeSpan PowerQueryCacheTtl = TimeSpan.FromSeconds(45);
 
     public string Build(string connectionString, string? databaseName, ModelMetadata modelSnapshot, string userPrompt, bool includeHiddenObjects, IReadOnlyList<string> modelSourcePaths)
     {
@@ -225,10 +230,64 @@ internal sealed class OnDemandMetadataContextBuilder
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // 优先实时序列化当前连接模型的 TMDL，路径解析仅作为兜底。
+        var cacheKey = BuildPowerQueryCacheKey(database, modelSnapshot, loadedTableNames);
+        if (TryGetCachedPowerQueryQueries(cacheKey, out var cached))
+        {
+            AppendPowerQueryQueriesRows(cached, sb);
+            return;
+        }
+
+        // 优先实时序列化当前连接模型的 TMDL；只有失败时才走文件路径兜底，避免双重扫描拖慢响应。
         var tmdlQueries = _powerQueryReader.TryReadQueriesFromDatabaseTmdl(database, loadedTableNames);
-        var fileQueries = _powerQueryReader.TryReadQueries(modelSourcePaths, loadedTableNames);
-        var queries = _powerQueryReader.MergeSources(tmdlQueries, fileQueries);
+        var queries = tmdlQueries.Count > 0
+            ? tmdlQueries
+            : _powerQueryReader.TryReadQueries(modelSourcePaths, loadedTableNames);
+
+        SetCachedPowerQueryQueries(cacheKey, queries);
+        AppendPowerQueryQueriesRows(queries, sb);
+    }
+
+    private static string BuildPowerQueryCacheKey(Database database, ModelMetadata modelSnapshot, IReadOnlyList<string> loadedTableNames)
+    {
+        var dbId = database.ID ?? database.Name ?? string.Empty;
+        return string.Join("|",
+            dbId,
+            modelSnapshot.Tables.Count.ToString(),
+            loadedTableNames.Count.ToString(),
+            modelSnapshot.Relationships.Count.ToString(),
+            modelSnapshot.Roles.Count.ToString());
+    }
+
+    private bool TryGetCachedPowerQueryQueries(string cacheKey, out IReadOnlyList<PowerQueryQueryMetadata> queries)
+    {
+        lock (_powerQueryCacheLock)
+        {
+            var isHit = string.Equals(_powerQueryCacheKey, cacheKey, StringComparison.Ordinal) &&
+                        _powerQueryCachedQueries.Count > 0 &&
+                        DateTime.UtcNow - _powerQueryCacheAtUtc <= PowerQueryCacheTtl;
+            if (isHit)
+            {
+                queries = _powerQueryCachedQueries;
+                return true;
+            }
+        }
+
+        queries = Array.Empty<PowerQueryQueryMetadata>();
+        return false;
+    }
+
+    private void SetCachedPowerQueryQueries(string cacheKey, IReadOnlyList<PowerQueryQueryMetadata> queries)
+    {
+        lock (_powerQueryCacheLock)
+        {
+            _powerQueryCacheKey = cacheKey;
+            _powerQueryCacheAtUtc = DateTime.UtcNow;
+            _powerQueryCachedQueries = queries;
+        }
+    }
+
+    private static void AppendPowerQueryQueriesRows(IReadOnlyList<PowerQueryQueryMetadata> queries, StringBuilder sb)
+    {
         if (queries.Count == 0)
         {
             return;
