@@ -43,7 +43,7 @@ internal sealed class OnDemandMetadataContextBuilder
             if (intent.IncludeDataSources)
             {
                 AppendDataSourcesSection(model, sb);
-                AppendPowerQueryQueriesSection(modelSnapshot, modelSourcePaths, sb);
+                AppendPowerQueryQueriesSection(database, modelSnapshot, modelSourcePaths, sb);
             }
 
             if (intent.IncludeExpressions)
@@ -217,7 +217,7 @@ internal sealed class OnDemandMetadataContextBuilder
         }
     }
 
-    private void AppendPowerQueryQueriesSection(ModelMetadata modelSnapshot, IReadOnlyList<string> modelSourcePaths, StringBuilder sb)
+    private void AppendPowerQueryQueriesSection(Database database, ModelMetadata modelSnapshot, IReadOnlyList<string> modelSourcePaths, StringBuilder sb)
     {
         var loadedTableNames = modelSnapshot.Tables
             .Where(table => string.Equals(table.SourceType, "PowerQuery", StringComparison.OrdinalIgnoreCase))
@@ -225,7 +225,10 @@ internal sealed class OnDemandMetadataContextBuilder
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var queries = _powerQueryReader.TryReadQueries(modelSourcePaths, loadedTableNames);
+        // 优先实时序列化当前连接模型的 TMDL，路径解析仅作为兜底。
+        var tmdlQueries = _powerQueryReader.TryReadQueriesFromDatabaseTmdl(database, loadedTableNames);
+        var fileQueries = _powerQueryReader.TryReadQueries(modelSourcePaths, loadedTableNames);
+        var queries = _powerQueryReader.MergeSources(tmdlQueries, fileQueries);
         if (queries.Count == 0)
         {
             return;
