@@ -91,20 +91,73 @@ internal sealed class MainFormWebView : Form
 
     public void PostMessage(string json)
     {
-        if (_webView.CoreWebView2 is null) return;
-        if (InvokeRequired)
-            Invoke(() => _webView.CoreWebView2.PostWebMessageAsJson(json));
-        else
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return;
+        }
+
+        DispatchToUi(() =>
+        {
+            if (_webView.CoreWebView2 is null)
+            {
+                return;
+            }
+
             _webView.CoreWebView2.PostWebMessageAsJson(json);
+        });
     }
 
     public void ExecuteScript(string js)
     {
-        if (_webView.CoreWebView2 is null) return;
-        if (InvokeRequired)
-            Invoke(() => _ = _webView.CoreWebView2.ExecuteScriptAsync(js));
-        else
+        if (string.IsNullOrWhiteSpace(js))
+        {
+            return;
+        }
+
+        DispatchToUi(() =>
+        {
+            if (_webView.CoreWebView2 is null)
+            {
+                return;
+            }
+
             _ = _webView.CoreWebView2.ExecuteScriptAsync(js);
+        });
+    }
+
+    private void DispatchToUi(Action action)
+    {
+        if (action is null)
+        {
+            return;
+        }
+
+        if (IsDisposed || Disposing || _webView.IsDisposed || _webView.Disposing)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_webView.IsHandleCreated)
+            {
+                _webView.BeginInvoke(action);
+                return;
+            }
+
+            if (IsHandleCreated)
+            {
+                BeginInvoke(action);
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // Ignore late dispatch during shutdown.
+        }
+        catch (InvalidOperationException)
+        {
+            // Ignore dispatch failures when handle is not ready.
+        }
     }
 
     public void MinimizeWindow()
