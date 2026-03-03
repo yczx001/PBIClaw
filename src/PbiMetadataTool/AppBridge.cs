@@ -239,7 +239,7 @@ internal sealed class AppBridge
             var msgs = new List<AiChatMessage>
             {
                 new("system", MetadataPromptBuilder.BuildSystemPrompt(runtimeSettings)),
-                new("system", MetadataPromptBuilder.BuildModelContext(_model, runtimeSettings.IncludeHiddenObjects, _report))
+                new("system", MetadataPromptBuilder.BuildModelContextForPrompt(_model, runtimeSettings.IncludeHiddenObjects, prompt, _report))
             };
             var referencedMeasureContext = MetadataPromptBuilder.BuildReferencedMeasureContext(_model, prompt, runtimeSettings.IncludeHiddenObjects);
             if (!string.IsNullOrWhiteSpace(referencedMeasureContext))
@@ -256,14 +256,17 @@ internal sealed class AppBridge
             {
                 msgs.Add(new AiChatMessage("system", referencedSourceContext));
             }
-            var onDemandDeepContext = await Task.Run(
-                () => BuildOnDemandDeepContext(prompt, runtimeSettings.IncludeHiddenObjects),
-                chatCts.Token);
-            if (!string.IsNullOrWhiteSpace(onDemandDeepContext))
+            if (ShouldBuildOnDemandDeepContext(prompt))
             {
-                msgs.Add(new AiChatMessage("system", onDemandDeepContext));
+                var onDemandDeepContext = await Task.Run(
+                    () => BuildOnDemandDeepContext(prompt, runtimeSettings.IncludeHiddenObjects),
+                    chatCts.Token);
+                if (!string.IsNullOrWhiteSpace(onDemandDeepContext))
+                {
+                    msgs.Add(new AiChatMessage("system", onDemandDeepContext));
+                }
             }
-            msgs.AddRange(_conversation.TakeLast(10));
+            msgs.AddRange(BuildConversationContextTail(_conversation, maxMessages: 8, maxChars: 12000));
             msgs.Add(new AiChatMessage("user", prompt));
 
             Send("chatProgress", new { requestId, phase = "requesting" });
@@ -369,6 +372,84 @@ internal sealed class AppBridge
             // Ignore cancellation errors.
         }
     }
+
+    private static bool ShouldBuildOnDemandDeepContext(string prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            return false;
+        }
+
+        var text = prompt.Trim();
+        return ContainsAny(
+            text,
+            "power query",
+            "m代码",
+            "m 代码",
+            "数据来源",
+            "数据源",
+            "source",
+            "dax",
+            "计算表",
+            "计算列",
+            "calculated table",
+            "calculated column",
+            "measure",
+            "度量",
+            "关系",
+            "relationship",
+            "rls",
+            "角色",
+            "权限",
+            "partition",
+            "tmdl",
+            "tom",
+            "模型",
+            "model");
+    }
+
+    private static IReadOnlyList<AiChatMessage> BuildConversationContextTail(
+        IReadOnlyList<AiChatMessage> conversation,
+        int maxMessages,
+        int maxChars)
+    {
+        if (conversation.Count == 0 || maxMessages <= 0 || maxChars <= 0)
+        {
+            return Array.Empty<AiChatMessage>();
+        }
+
+        var selected = new List<AiChatMessage>();
+        var usedChars = 0;
+        for (var i = conversation.Count - 1; i >= 0; i--)
+        {
+            var msg = conversation[i];
+            if (string.Equals(msg.Role, "system", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var content = msg.Content ?? string.Empty;
+            var len = content.Length;
+            if (selected.Count >= maxMessages)
+            {
+                break;
+            }
+
+            if (usedChars + len > maxChars && selected.Count > 0)
+            {
+                break;
+            }
+
+            selected.Add(msg);
+            usedChars += len;
+        }
+
+        selected.Reverse();
+        return selected;
+    }
+
+    private static bool ContainsAny(string text, params string[] keywords)
+        => keywords.Any(keyword => text.Contains(keyword, StringComparison.OrdinalIgnoreCase));
 
     private async Task OnTestConnectionAsync(JsonObject p)
     {

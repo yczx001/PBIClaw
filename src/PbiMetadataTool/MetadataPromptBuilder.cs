@@ -87,6 +87,17 @@ internal static class MetadataPromptBuilder
         return prompt;
     }
 
+    public static string BuildModelContextForPrompt(
+        ModelMetadata metadata,
+        bool includeHiddenObjects,
+        string userPrompt,
+        ReportMetadata? report = null)
+    {
+        return ShouldUseDetailedModelContext(userPrompt)
+            ? BuildModelContext(metadata, includeHiddenObjects, report)
+            : BuildModelIndexContext(metadata, includeHiddenObjects, report);
+    }
+
     public static string BuildModelContext(ModelMetadata metadata, bool includeHiddenObjects, ReportMetadata? report = null)
     {
         var sb = new StringBuilder();
@@ -223,6 +234,85 @@ internal static class MetadataPromptBuilder
             }
         }
 
+        return sb.ToString();
+    }
+
+    public static string BuildModelIndexContext(ModelMetadata metadata, bool includeHiddenObjects, ReportMetadata? report = null)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("以下是当前 Power BI 模型索引（精简上下文）：");
+        sb.AppendLine($"数据库: {metadata.DatabaseName}");
+        sb.AppendLine($"兼容级别: {metadata.CompatibilityLevel}");
+        sb.AppendLine($"表数量: {metadata.Tables.Count}");
+        sb.AppendLine($"关系数量: {metadata.Relationships.Count}");
+        sb.AppendLine($"角色数量: {metadata.Roles.Count}");
+        sb.AppendLine();
+
+        var tables = metadata.Tables
+            .Where(t => includeHiddenObjects || !t.IsHidden)
+            .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        sb.AppendLine($"表索引 ({tables.Count}):");
+        foreach (var table in tables.Take(220))
+        {
+            var columnCount = table.Columns.Count(c => includeHiddenObjects || !c.IsHidden);
+            var measureCount = table.Measures.Count(m => includeHiddenObjects || !m.IsHidden);
+            var type = string.IsNullOrWhiteSpace(table.TableType) ? "-" : table.TableType;
+            sb.AppendLine($"- {table.Name} | 类型: {type} | 列: {columnCount} | 度量值: {measureCount}");
+        }
+        if (tables.Count > 220)
+        {
+            sb.AppendLine($"- ...(其余 {tables.Count - 220} 张表已省略)");
+        }
+
+        var relationships = metadata.Relationships
+            .OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (relationships.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"关系索引 ({relationships.Count}):");
+            foreach (var relationship in relationships.Take(120))
+            {
+                sb.AppendLine($"- {relationship.FromTable}.{relationship.FromColumn} -> {relationship.ToTable}.{relationship.ToColumn}");
+            }
+            if (relationships.Count > 120)
+            {
+                sb.AppendLine($"- ...(其余 {relationships.Count - 120} 条关系已省略)");
+            }
+        }
+
+        if (metadata.Roles.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("角色索引:");
+            foreach (var role in metadata.Roles.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).Take(60))
+            {
+                sb.AppendLine($"- {role.Name}");
+            }
+            if (metadata.Roles.Count > 60)
+            {
+                sb.AppendLine($"- ...(其余 {metadata.Roles.Count - 60} 个角色已省略)");
+            }
+        }
+
+        if (report is not null)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"报表页数量: {report.Pages.Count}");
+            foreach (var page in report.Pages.Take(20))
+            {
+                var pageName = string.IsNullOrWhiteSpace(page.DisplayName) ? page.Name : page.DisplayName;
+                sb.AppendLine($"- 页面: {pageName} | 视觉对象: {page.Visuals.Count}");
+            }
+            if (report.Pages.Count > 20)
+            {
+                sb.AppendLine($"- ...(其余 {report.Pages.Count - 20} 页已省略)");
+            }
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("若需要完整字段/度量值/DAX/M 代码，请按对象名继续追问。");
         return sb.ToString();
     }
 
@@ -519,4 +609,33 @@ internal static class MetadataPromptBuilder
     private static bool HasUsableValue(string? value)
         => !string.IsNullOrWhiteSpace(value) &&
            !string.Equals(value, "Unknown", StringComparison.OrdinalIgnoreCase);
+
+    private static bool ShouldUseDetailedModelContext(string prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            return false;
+        }
+
+        return ContainsAnyCaseInsensitive(
+            prompt,
+            "全部",
+            "所有",
+            "完整",
+            "全量",
+            "每张",
+            "每个",
+            "全模型",
+            "模型全貌",
+            "all metadata",
+            "full metadata",
+            "entire model",
+            "all tables",
+            "all columns",
+            "all measures",
+            "all relationships");
+    }
+
+    private static bool ContainsAnyCaseInsensitive(string text, params string[] keywords)
+        => keywords.Any(keyword => text.Contains(keyword, StringComparison.OrdinalIgnoreCase));
 }
