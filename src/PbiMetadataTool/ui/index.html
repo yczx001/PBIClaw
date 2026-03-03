@@ -3075,15 +3075,22 @@ const App = {
         maybeShowStartupGuide();
         break;
       case 'connected':
+        {
+        const silent = !!(msg.payload && msg.payload.silent);
         State.connected = true;
         State.dbName = msg.payload.dbName;
         State.allowChanges = msg.payload.allowChanges;
-        State.expandedTables = {};
-        State.expandedRoles = {};
+        if (!silent) {
+          State.expandedTables = {};
+          State.expandedRoles = {};
+        }
         updateChips();
         renderTree(msg.payload.model);
-        appendMsg('system', '✅ 已连接到模型: ' + msg.payload.dbName);
-        toast('连接成功', 'success');
+        if (!silent) {
+          appendMsg('system', '✅ 已连接到模型: ' + msg.payload.dbName);
+          toast('连接成功', 'success');
+        }
+        }
         break;
       case 'disconnected':
         State.connected = false;

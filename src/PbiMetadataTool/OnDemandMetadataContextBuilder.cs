@@ -10,7 +10,7 @@ internal sealed class OnDemandMetadataContextBuilder
     private string _powerQueryCacheKey = string.Empty;
     private DateTime _powerQueryCacheAtUtc = DateTime.MinValue;
     private IReadOnlyList<PowerQueryQueryMetadata> _powerQueryCachedQueries = Array.Empty<PowerQueryQueryMetadata>();
-    private static readonly TimeSpan PowerQueryCacheTtl = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan PowerQueryCacheTtl = TimeSpan.FromMinutes(20);
 
     public string Build(string connectionString, string? databaseName, ModelMetadata modelSnapshot, string userPrompt, bool includeHiddenObjects, IReadOnlyList<string> modelSourcePaths)
     {
@@ -48,7 +48,7 @@ internal sealed class OnDemandMetadataContextBuilder
             if (intent.IncludeDataSources)
             {
                 AppendDataSourcesSection(model, sb);
-                AppendPowerQueryQueriesSection(database, modelSnapshot, modelSourcePaths, sb);
+                AppendPowerQueryQueriesSection(database, modelSnapshot, modelSourcePaths, intent, userPrompt, sb);
             }
 
             if (intent.IncludeExpressions)
@@ -222,7 +222,13 @@ internal sealed class OnDemandMetadataContextBuilder
         }
     }
 
-    private void AppendPowerQueryQueriesSection(Database database, ModelMetadata modelSnapshot, IReadOnlyList<string> modelSourcePaths, StringBuilder sb)
+    private void AppendPowerQueryQueriesSection(
+        Database database,
+        ModelMetadata modelSnapshot,
+        IReadOnlyList<string> modelSourcePaths,
+        QueryIntent intent,
+        string userPrompt,
+        StringBuilder sb)
     {
         var loadedTableNames = modelSnapshot.Tables
             .Where(table => string.Equals(table.SourceType, "PowerQuery", StringComparison.OrdinalIgnoreCase))
@@ -233,7 +239,7 @@ internal sealed class OnDemandMetadataContextBuilder
         var cacheKey = BuildPowerQueryCacheKey(database, modelSnapshot, loadedTableNames);
         if (TryGetCachedPowerQueryQueries(cacheKey, out var cached))
         {
-            AppendPowerQueryQueriesRows(cached, sb);
+            AppendPowerQueryQueriesRows(cached, intent, userPrompt, sb);
             return;
         }
 
@@ -244,7 +250,7 @@ internal sealed class OnDemandMetadataContextBuilder
             : _powerQueryReader.TryReadQueries(modelSourcePaths, loadedTableNames);
 
         SetCachedPowerQueryQueries(cacheKey, queries);
-        AppendPowerQueryQueriesRows(queries, sb);
+        AppendPowerQueryQueriesRows(queries, intent, userPrompt, sb);
     }
 
     private static string BuildPowerQueryCacheKey(Database database, ModelMetadata modelSnapshot, IReadOnlyList<string> loadedTableNames)
@@ -286,17 +292,53 @@ internal sealed class OnDemandMetadataContextBuilder
         }
     }
 
-    private static void AppendPowerQueryQueriesRows(IReadOnlyList<PowerQueryQueryMetadata> queries, StringBuilder sb)
+    private static void AppendPowerQueryQueriesRows(
+        IReadOnlyList<PowerQueryQueryMetadata> queries,
+        QueryIntent intent,
+        string prompt,
+        StringBuilder sb)
     {
         if (queries.Count == 0)
         {
             return;
         }
 
+        var includeAllQueryDetails = intent.IncludeAllTables || ContainsAny(
+            prompt,
+            "全部查询",
+            "所有查询",
+            "全部 power query",
+            "all queries",
+            "all power query");
+        var namedQueries = queries
+            .Where(query => query.Name.Length >= 2 && ContainsIgnoreCase(prompt, query.Name))
+            .ToList();
+        var tableMatchedQueries = queries
+            .Where(query => intent.MentionedTables.Contains(query.Name))
+            .ToList();
+        var detailQueries = includeAllQueryDetails
+            ? queries.ToList()
+            : namedQueries.Count > 0
+                ? namedQueries
+                : tableMatchedQueries.Count > 0
+                    ? tableMatchedQueries
+                    : new List<PowerQueryQueryMetadata>();
+        var summaryOnly = detailQueries.Count == 0;
+
         var unloadedCount = queries.Count(query => !query.IsLoadedToModel);
         sb.AppendLine();
         sb.AppendLine($"Power Query 查询 ({queries.Count})：未加载 {unloadedCount}");
-        foreach (var query in queries.OrderBy(q => q.Name, StringComparer.OrdinalIgnoreCase))
+        if (summaryOnly)
+        {
+            sb.AppendLine("  未指定具体查询名，已返回查询清单。");
+            foreach (var query in queries.OrderBy(q => q.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                sb.AppendLine($"- 名称: {query.Name}" + (query.IsLoadedToModel ? " | 已加载到模型" : " | 未加载到模型"));
+            }
+            return;
+        }
+
+        foreach (var query in detailQueries.OrderBy(q => q.Name, StringComparer.OrdinalIgnoreCase))
         {
             sb.AppendLine($"- 名称: {query.Name}" + (query.IsLoadedToModel ? " | 已加载到模型" : " | 未加载到模型"));
             if (query.IsParameter)
