@@ -80,38 +80,38 @@ internal static class QuerySourceParser
 
     private static string ResolveSystemType(string sourceType, string expression, string dataSourceName)
     {
-        if (Contains(expression, "Sql.Database") || Contains(expression, "Sql.Databases"))
-            return "SQL Server";
-        if (Contains(expression, "PostgreSQL.Database"))
+        if (ContainsCall(expression, "PostgreSQL.Database"))
             return "PostgreSQL";
-        if (Contains(expression, "MySQL.Database"))
+        if (ContainsCall(expression, "MySQL.Database"))
             return "MySQL";
-        if (Contains(expression, "Oracle.Database"))
+        if (ContainsCall(expression, "Sql.Database") || ContainsCall(expression, "Sql.Databases"))
+            return "SQL Server";
+        if (ContainsCall(expression, "Oracle.Database"))
             return "Oracle";
-        if (Contains(expression, "Snowflake.Databases"))
+        if (ContainsCall(expression, "Snowflake.Databases"))
             return "Snowflake";
-        if (Contains(expression, "SapHana.Database"))
+        if (ContainsCall(expression, "SapHana.Database"))
             return "SAP HANA";
-        if (Contains(expression, "Odbc.DataSource"))
+        if (ContainsCall(expression, "Odbc.DataSource"))
             return "ODBC";
-        if (Contains(expression, "OleDb.DataSource"))
+        if (ContainsCall(expression, "OleDb.DataSource"))
             return "OLE DB";
-        if (Contains(expression, "AnalysisServices.Database"))
+        if (ContainsCall(expression, "AnalysisServices.Database"))
             return "Analysis Services";
-        if (Contains(expression, "Excel.Workbook"))
+        if (ContainsCall(expression, "Excel.Workbook"))
             return "Excel";
-        if (Contains(expression, "Csv.Document"))
+        if (ContainsCall(expression, "Csv.Document"))
             return "CSV";
-        if (Contains(expression, "SharePoint.Contents") || Contains(expression, "SharePoint.Files"))
+        if (ContainsCall(expression, "SharePoint.Contents") || ContainsCall(expression, "SharePoint.Files"))
             return "SharePoint";
-        if (Contains(expression, "Web.Contents"))
+        if (ContainsCall(expression, "Web.Contents"))
             return "Web API";
 
         if (!string.IsNullOrWhiteSpace(dataSourceName))
         {
-            if (Contains(dataSourceName, "sql")) return "SQL Server";
             if (Contains(dataSourceName, "postgres")) return "PostgreSQL";
             if (Contains(dataSourceName, "mysql")) return "MySQL";
+            if (Contains(dataSourceName, "sql")) return "SQL Server";
             if (Contains(dataSourceName, "oracle")) return "Oracle";
             if (Contains(dataSourceName, "snowflake")) return "Snowflake";
             if (Contains(dataSourceName, "odbc")) return "ODBC";
@@ -160,4 +160,18 @@ internal static class QuerySourceParser
 
     private static bool Contains(string text, string keyword)
         => text.Contains(keyword, StringComparison.OrdinalIgnoreCase);
+
+    private static bool ContainsCall(string text, string functionName)
+    {
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(functionName))
+        {
+            return false;
+        }
+
+        var escaped = Regex.Escape(functionName);
+        return Regex.IsMatch(
+            text,
+            $@"(?<![A-Za-z0-9_]){escaped}\s*\(",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+    }
 }
