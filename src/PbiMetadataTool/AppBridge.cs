@@ -1259,6 +1259,11 @@ internal sealed class AppBridge
                 {
                     return hit.PbixPathHint;
                 }
+
+                if (hit is not null && !string.IsNullOrWhiteSpace(hit.WorkspacePath))
+                {
+                    return hit.WorkspacePath;
+                }
             }
             catch
             {

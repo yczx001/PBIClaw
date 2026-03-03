@@ -30,7 +30,19 @@ internal sealed class PowerQueryMetadataReader
             var fullPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(sourcePath.Trim()));
             if (Directory.Exists(fullPath))
             {
-                return ParseFromPbipDirectory(fullPath, loadedTableNames);
+                var rows = ParseFromPbipDirectory(fullPath, loadedTableNames);
+                if (rows.Count > 0)
+                {
+                    return rows;
+                }
+
+                rows = ParseFromWorkspaceDirectory(fullPath, loadedTableNames);
+                if (rows.Count > 0)
+                {
+                    return rows;
+                }
+
+                return Array.Empty<PowerQueryQueryMetadata>();
             }
 
             if (!File.Exists(fullPath))
@@ -75,19 +87,7 @@ internal sealed class PowerQueryMetadataReader
         using var ms = new MemoryStream();
         stream.CopyTo(ms);
         var bytes = ms.ToArray();
-
-        var sectionM = TryExtractSectionMFromMashupBytes(bytes);
-        if (string.IsNullOrWhiteSpace(sectionM))
-        {
-            sectionM = TryExtractSectionMFromBinaryText(bytes);
-        }
-
-        if (string.IsNullOrWhiteSpace(sectionM))
-        {
-            return Array.Empty<PowerQueryQueryMetadata>();
-        }
-
-        return ParseQueriesFromSectionM(sectionM, loadedTableNames);
+        return ParseFromDataMashupBytes(bytes, loadedTableNames);
     }
 
     private static IReadOnlyList<PowerQueryQueryMetadata> ParseFromPbipDirectory(string projectDir, IReadOnlyCollection<string> loadedTableNames)
@@ -134,6 +134,70 @@ internal sealed class PowerQueryMetadataReader
         return Array.Empty<PowerQueryQueryMetadata>();
     }
 
+    private static IReadOnlyList<PowerQueryQueryMetadata> ParseFromWorkspaceDirectory(string workspaceDir, IReadOnlyCollection<string> loadedTableNames)
+    {
+        var candidates = new List<string>();
+        try
+        {
+            var dataDir = Path.Combine(workspaceDir, "Data");
+            if (Directory.Exists(dataDir))
+            {
+                candidates.AddRange(Directory.EnumerateFiles(dataDir, "*", SearchOption.TopDirectoryOnly)
+                    .Where(path =>
+                        string.Equals(Path.GetFileName(path), "DataMashup", StringComparison.OrdinalIgnoreCase) ||
+                        path.EndsWith(".mashup", StringComparison.OrdinalIgnoreCase)));
+            }
+
+            if (candidates.Count == 0)
+            {
+                candidates.AddRange(Directory.EnumerateFiles(workspaceDir, "*", SearchOption.AllDirectories)
+                    .Where(path =>
+                        string.Equals(Path.GetFileName(path), "DataMashup", StringComparison.OrdinalIgnoreCase) ||
+                        path.EndsWith(".mashup", StringComparison.OrdinalIgnoreCase))
+                    .Take(20));
+            }
+        }
+        catch
+        {
+            return Array.Empty<PowerQueryQueryMetadata>();
+        }
+
+        foreach (var path in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var bytes = File.ReadAllBytes(path);
+                var rows = ParseFromDataMashupBytes(bytes, loadedTableNames);
+                if (rows.Count > 0)
+                {
+                    return rows;
+                }
+            }
+            catch
+            {
+                // Try next candidate.
+            }
+        }
+
+        return Array.Empty<PowerQueryQueryMetadata>();
+    }
+
+    private static IReadOnlyList<PowerQueryQueryMetadata> ParseFromDataMashupBytes(byte[] bytes, IReadOnlyCollection<string> loadedTableNames)
+    {
+        var sectionM = TryExtractSectionMFromMashupBytes(bytes);
+        if (string.IsNullOrWhiteSpace(sectionM))
+        {
+            sectionM = TryExtractSectionMFromBinaryText(bytes);
+        }
+
+        if (string.IsNullOrWhiteSpace(sectionM))
+        {
+            return Array.Empty<PowerQueryQueryMetadata>();
+        }
+
+        return ParseQueriesFromSectionM(sectionM, loadedTableNames);
+    }
+
     private static string TryExtractSectionMFromMashupBytes(byte[] mashupBytes)
     {
         var zipStart = FindZipHeaderOffset(mashupBytes);
@@ -144,25 +208,45 @@ internal sealed class PowerQueryMetadataReader
 
         try
         {
-            using var zipStream = new MemoryStream(mashupBytes, zipStart, mashupBytes.Length - zipStart, writable: false);
+            using var zipStream = new MemoryStream(mashupBytes, writable: false);
             using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read, leaveOpen: false);
-            var sectionEntry = archive.Entries
-                .FirstOrDefault(entry =>
-                    string.Equals(entry.FullName.Replace('\\', '/'), "Formulas/Section1.m", StringComparison.OrdinalIgnoreCase) ||
-                    entry.FullName.EndsWith("/Section1.m", StringComparison.OrdinalIgnoreCase));
-
-            if (sectionEntry is null)
+            var section = TryReadSectionFromZipArchive(archive);
+            if (!string.IsNullOrWhiteSpace(section))
             {
-                return string.Empty;
+                return section;
             }
+        }
+        catch
+        {
+            // Fallback to offset stream below.
+        }
 
-            using var reader = new StreamReader(sectionEntry.Open(), Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-            return reader.ReadToEnd();
+        try
+        {
+            using var offsetZipStream = new MemoryStream(mashupBytes, zipStart, mashupBytes.Length - zipStart, writable: false);
+            using var offsetArchive = new ZipArchive(offsetZipStream, ZipArchiveMode.Read, leaveOpen: false);
+            return TryReadSectionFromZipArchive(offsetArchive);
         }
         catch
         {
             return string.Empty;
         }
+    }
+
+    private static string TryReadSectionFromZipArchive(ZipArchive archive)
+    {
+        var sectionEntry = archive.Entries
+            .FirstOrDefault(entry =>
+                string.Equals(entry.FullName.Replace('\\', '/'), "Formulas/Section1.m", StringComparison.OrdinalIgnoreCase) ||
+                entry.FullName.EndsWith("/Section1.m", StringComparison.OrdinalIgnoreCase));
+
+        if (sectionEntry is null)
+        {
+            return string.Empty;
+        }
+
+        using var reader = new StreamReader(sectionEntry.Open(), Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd();
     }
 
     private static string TryExtractSectionMFromBinaryText(byte[] bytes)

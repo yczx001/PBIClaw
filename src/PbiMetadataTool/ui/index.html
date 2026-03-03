@@ -140,6 +140,11 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .msg-bubble blockquote { margin: 8px 0; padding: 4px 10px; border-left: 3px solid var(--accent); color: var(--text2); background: rgba(79,142,247,.08); border-radius: 6px; }
 .msg-bubble a { color: var(--accent); text-decoration: none; }
 .msg-bubble a:hover { text-decoration: underline; }
+.msg-bubble table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 12px; overflow: hidden; border-radius: 8px; border: 1px solid var(--border); }
+.msg-bubble th,.msg-bubble td { border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); padding: 7px 9px; text-align: left; vertical-align: top; }
+.msg-bubble th:last-child,.msg-bubble td:last-child { border-right: none; }
+.msg-bubble tr:last-child td { border-bottom: none; }
+.msg-bubble thead th { background: var(--surface2); color: var(--text2); font-weight: 700; }
 
 /* ── Input area ── */
 #input-area { border-top: 1px solid var(--border); padding: 12px 16px; background: var(--surface); }
@@ -2118,6 +2123,7 @@ function renderMarkdownBlocks(text) {
   const lines = String(text || '').split('\n');
   const out = [];
   let listType = '';
+  let i = 0;
 
   function closeList() {
     if (!listType) return;
@@ -2125,13 +2131,78 @@ function renderMarkdownBlocks(text) {
     listType = '';
   }
 
-  lines.forEach(function(raw) {
-    const line = raw || '';
+  function splitTableRow(line) {
+    const raw = String(line || '').trim();
+    if (!raw.includes('|')) return [];
+    let normalized = raw;
+    if (normalized.startsWith('|')) normalized = normalized.slice(1);
+    if (normalized.endsWith('|')) normalized = normalized.slice(0, -1);
+    return normalized.split('|').map(function(cell) { return cell.trim(); });
+  }
+
+  function isTableSeparator(line, expectedCols) {
+    const cols = splitTableRow(line);
+    if (!cols.length) return false;
+    if (expectedCols > 0 && cols.length !== expectedCols) return false;
+    return cols.every(function(cell) {
+      return /^:?-{3,}:?$/.test(cell);
+    });
+  }
+
+  function renderTableBlock(headerLine, separatorLine, bodyLines) {
+    const headers = splitTableRow(headerLine);
+    if (!headers.length || !isTableSeparator(separatorLine, headers.length)) {
+      return '';
+    }
+
+    const bodyRows = bodyLines
+      .map(splitTableRow)
+      .filter(function(cols) { return cols.length === headers.length; });
+
+    const headHtml = '<thead><tr>' + headers.map(function(cell) {
+      return '<th>' + formatInlineMarkdown(cell) + '</th>';
+    }).join('') + '</tr></thead>';
+
+    const bodyHtml = bodyRows.length
+      ? '<tbody>' + bodyRows.map(function(cols) {
+        return '<tr>' + cols.map(function(cell) {
+          return '<td>' + formatInlineMarkdown(cell) + '</td>';
+        }).join('') + '</tr>';
+      }).join('') + '</tbody>'
+      : '';
+
+    return '<table>' + headHtml + bodyHtml + '</table>';
+  }
+
+  while (i < lines.length) {
+    const line = lines[i] || '';
     const trimmed = line.trim();
 
     if (!trimmed) {
       closeList();
-      return;
+      i += 1;
+      continue;
+    }
+
+    if (i + 1 < lines.length && trimmed.includes('|') && isTableSeparator(lines[i + 1], splitTableRow(trimmed).length)) {
+      closeList();
+      const bodyLines = [];
+      let j = i + 2;
+      while (j < lines.length) {
+        const nextTrimmed = String(lines[j] || '').trim();
+        if (!nextTrimmed || !nextTrimmed.includes('|')) {
+          break;
+        }
+        bodyLines.push(lines[j]);
+        j += 1;
+      }
+
+      const tableHtml = renderTableBlock(lines[i], lines[i + 1], bodyLines);
+      if (tableHtml) {
+        out.push(tableHtml);
+        i = j;
+        continue;
+      }
     }
 
     const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
@@ -2139,14 +2210,16 @@ function renderMarkdownBlocks(text) {
       closeList();
       const level = heading[1].length;
       out.push('<h' + level + '>' + formatInlineMarkdown(heading[2]) + '</h' + level + '>');
-      return;
+      i += 1;
+      continue;
     }
 
     const quote = trimmed.match(/^>\s?(.*)$/);
     if (quote) {
       closeList();
       out.push('<blockquote>' + formatInlineMarkdown(quote[1]) + '</blockquote>');
-      return;
+      i += 1;
+      continue;
     }
 
     const ul = trimmed.match(/^[-*+]\s+(.+)$/);
@@ -2157,7 +2230,8 @@ function renderMarkdownBlocks(text) {
         out.push('<ul>');
       }
       out.push('<li>' + formatInlineMarkdown(ul[1]) + '</li>');
-      return;
+      i += 1;
+      continue;
     }
 
     const ol = trimmed.match(/^\d+\.\s+(.+)$/);
@@ -2168,12 +2242,14 @@ function renderMarkdownBlocks(text) {
         out.push('<ol>');
       }
       out.push('<li>' + formatInlineMarkdown(ol[1]) + '</li>');
-      return;
+      i += 1;
+      continue;
     }
 
     closeList();
     out.push('<p>' + formatInlineMarkdown(trimmed) + '</p>');
-  });
+    i += 1;
+  }
 
   closeList();
   return out.join('');

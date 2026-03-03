@@ -234,7 +234,7 @@ internal sealed class OnDemandMetadataContextBuilder
         var unloadedCount = queries.Count(query => !query.IsLoadedToModel);
         sb.AppendLine();
         sb.AppendLine($"Power Query 查询 ({queries.Count})：未加载 {unloadedCount}");
-        foreach (var query in queries.OrderBy(q => q.Name, StringComparer.OrdinalIgnoreCase).Take(80))
+        foreach (var query in queries.OrderBy(q => q.Name, StringComparer.OrdinalIgnoreCase))
         {
             sb.AppendLine($"- 名称: {query.Name}" + (query.IsLoadedToModel ? " | 已加载到模型" : " | 未加载到模型"));
             if (query.IsParameter)
