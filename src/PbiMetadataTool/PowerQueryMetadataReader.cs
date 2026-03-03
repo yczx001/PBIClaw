@@ -1,7 +1,6 @@
 using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
-using Microsoft.AnalysisServices.Tabular;
 
 namespace PbiMetadataTool;
 
@@ -19,33 +18,6 @@ internal sealed record PowerQueryQueryMetadata(
 
 internal sealed class PowerQueryMetadataReader
 {
-    public IReadOnlyList<PowerQueryQueryMetadata> TryReadQueriesFromDatabaseTmdl(Database? database, IReadOnlyCollection<string> loadedTableNames)
-    {
-        if (database is null)
-        {
-            return Array.Empty<PowerQueryQueryMetadata>();
-        }
-
-        try
-        {
-            var tmdlText = TmdlSerializer.SerializeDatabase(database);
-            if (string.IsNullOrWhiteSpace(tmdlText))
-            {
-                return Array.Empty<PowerQueryQueryMetadata>();
-            }
-
-            var loadedNames = new HashSet<string>(loadedTableNames ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-            return ParseQueriesFromTmdlText(tmdlText, loadedNames);
-        }
-        catch
-        {
-            return Array.Empty<PowerQueryQueryMetadata>();
-        }
-    }
-
-    public IReadOnlyList<PowerQueryQueryMetadata> MergeSources(params IReadOnlyList<PowerQueryQueryMetadata>[] sources) =>
-        MergeQueryRows(sources);
-
     public IReadOnlyList<PowerQueryQueryMetadata> TryReadQueries(IEnumerable<string?>? sourcePaths, IReadOnlyCollection<string> loadedTableNames)
     {
         if (sourcePaths is null)
