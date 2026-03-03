@@ -256,7 +256,9 @@ internal sealed class AppBridge
             {
                 msgs.Add(new AiChatMessage("system", referencedSourceContext));
             }
-            var onDemandDeepContext = BuildOnDemandDeepContext(prompt, runtimeSettings.IncludeHiddenObjects);
+            var onDemandDeepContext = await Task.Run(
+                () => BuildOnDemandDeepContext(prompt, runtimeSettings.IncludeHiddenObjects),
+                chatCts.Token);
             if (!string.IsNullOrWhiteSpace(onDemandDeepContext))
             {
                 msgs.Add(new AiChatMessage("system", onDemandDeepContext));
@@ -1347,7 +1349,8 @@ internal sealed class AppBridge
         {
             dbName = _connectedModelDisplayName,
             allowChanges = _settings.AllowModelChanges,
-            model = ModelDto(_model, _connectedModelDisplayName, _report)
+            model = ModelDto(_model, _connectedModelDisplayName, _report),
+            silent = false
         });
 
         if (_report is not null)
@@ -1376,10 +1379,9 @@ internal sealed class AppBridge
                 {
                     dbName = _connectedModelDisplayName,
                     allowChanges = _settings.AllowModelChanges,
-                    model = ModelDto(_model, _connectedModelDisplayName, _report)
+                    model = ModelDto(_model, _connectedModelDisplayName, _report),
+                    silent = true
                 });
-                var visualCount = _report.Pages.Sum(page => page.Visuals.Count);
-                Send("status", new { text = $"已加载报表信息：{_report.Pages.Count} 页，{visualCount} 个视觉对象。", level = "success" });
                 return;
             }
 
