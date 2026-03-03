@@ -18,6 +18,31 @@ internal sealed record PowerQueryQueryMetadata(
 
 internal sealed class PowerQueryMetadataReader
 {
+    public IReadOnlyList<PowerQueryQueryMetadata> TryReadQueries(IEnumerable<string?>? sourcePaths, IReadOnlyCollection<string> loadedTableNames)
+    {
+        if (sourcePaths is null)
+        {
+            return Array.Empty<PowerQueryQueryMetadata>();
+        }
+
+        var allRows = new List<IReadOnlyList<PowerQueryQueryMetadata>>();
+        foreach (var sourcePath in sourcePaths)
+        {
+            var rows = TryReadQueries(sourcePath, loadedTableNames);
+            if (rows.Count > 0)
+            {
+                allRows.Add(rows);
+            }
+        }
+
+        if (allRows.Count == 0)
+        {
+            return Array.Empty<PowerQueryQueryMetadata>();
+        }
+
+        return MergeQueryRows(allRows.ToArray());
+    }
+
     public IReadOnlyList<PowerQueryQueryMetadata> TryReadQueries(string? sourcePath, IReadOnlyCollection<string> loadedTableNames)
     {
         if (string.IsNullOrWhiteSpace(sourcePath))
@@ -31,9 +56,9 @@ internal sealed class PowerQueryMetadataReader
             if (Directory.Exists(fullPath))
             {
                 return MergeQueryRows(
+                    ParseFromTmdlDirectory(fullPath, loadedTableNames),
                     ParseFromPbipDirectory(fullPath, loadedTableNames),
-                    ParseFromWorkspaceDirectory(fullPath, loadedTableNames),
-                    ParseFromTmdlDirectory(fullPath, loadedTableNames));
+                    ParseFromWorkspaceDirectory(fullPath, loadedTableNames));
             }
 
             if (!File.Exists(fullPath))
@@ -44,9 +69,10 @@ internal sealed class PowerQueryMetadataReader
             var ext = Path.GetExtension(fullPath).ToLowerInvariant();
             if (ext is ".pbix" or ".pbit")
             {
+                var rootDir = Path.GetDirectoryName(fullPath) ?? string.Empty;
                 return MergeQueryRows(
-                    ParseFromPbixArchive(fullPath, loadedTableNames),
-                    ParseFromTmdlDirectory(Path.GetDirectoryName(fullPath) ?? string.Empty, loadedTableNames));
+                    ParseFromTmdlDirectory(rootDir, loadedTableNames),
+                    ParseFromPbixArchive(fullPath, loadedTableNames));
             }
 
             if (ext == ".pbip")
@@ -55,8 +81,8 @@ internal sealed class PowerQueryMetadataReader
                 if (!string.IsNullOrWhiteSpace(projectDir))
                 {
                     return MergeQueryRows(
-                        ParseFromPbipDirectory(projectDir, loadedTableNames),
-                        ParseFromTmdlDirectory(projectDir, loadedTableNames));
+                        ParseFromTmdlDirectory(projectDir, loadedTableNames),
+                        ParseFromPbipDirectory(projectDir, loadedTableNames));
                 }
             }
         }
@@ -486,6 +512,7 @@ internal sealed class PowerQueryMetadataReader
 
         var rows = new List<PowerQueryQueryMetadata>();
         rows.AddRange(ParseQueriesFromTmdlTableBlocks(text, loadedNames));
+        rows.AddRange(ParseQueriesFromTmdlExpressionBlocks(text, loadedNames));
 
         var eqMatches = Regex.Matches(
             text,
@@ -517,6 +544,73 @@ internal sealed class PowerQueryMetadataReader
             .GroupBy(q => q.Name, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.OrderByDescending(ScoreQuery).First())
             .ToList();
+    }
+
+    private static IReadOnlyList<PowerQueryQueryMetadata> ParseQueriesFromTmdlExpressionBlocks(string text, HashSet<string> loadedNames)
+    {
+        var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        if (lines.Length == 0)
+        {
+            return Array.Empty<PowerQueryQueryMetadata>();
+        }
+
+        var rows = new List<PowerQueryQueryMetadata>();
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            var trimmed = line.Trim();
+            if (!TryMatchTmdlExpressionHeader(trimmed, out var expressionName))
+            {
+                continue;
+            }
+
+            var headerIndent = GetLeadingWhitespaceWidth(line);
+            var blockLines = new List<string>();
+            var cursor = i + 1;
+            for (; cursor < lines.Length; cursor++)
+            {
+                var candidate = lines[cursor];
+                var candidateTrimmed = candidate.Trim();
+                if (candidateTrimmed.Length == 0)
+                {
+                    blockLines.Add(string.Empty);
+                    continue;
+                }
+
+                var indent = GetLeadingWhitespaceWidth(candidate);
+                if (indent <= headerIndent && IsTmdlTopLevelHeader(candidateTrimmed))
+                {
+                    break;
+                }
+
+                if (indent <= headerIndent)
+                {
+                    break;
+                }
+
+                blockLines.Add(candidate);
+            }
+
+            i = Math.Max(i, cursor - 1);
+            if (blockLines.Count == 0)
+            {
+                continue;
+            }
+
+            if (!TryExtractTmdlBlockExpression(blockLines, out var expression))
+            {
+                continue;
+            }
+
+            if (!LooksLikePowerQueryExpression(expression))
+            {
+                continue;
+            }
+
+            rows.Add(CreateQueryRow(expressionName, expression, loadedNames));
+        }
+
+        return rows;
     }
 
     private static IReadOnlyList<PowerQueryQueryMetadata> ParseQueriesFromTmdlTableBlocks(string text, HashSet<string> loadedNames)
@@ -650,6 +744,95 @@ internal sealed class PowerQueryMetadataReader
 
         inlineSource = match.Groups["expr"].Value.Trim();
         return true;
+    }
+
+    private static bool TryMatchTmdlExpressionHeader(string trimmedLine, out string expressionName)
+    {
+        var match = Regex.Match(trimmedLine, @"^(?:expression|shared)\s+(?<name>#""(?:[^""]|"""")*""|'[^']+'|""[^""]+""|[^\r\n=]+?)(?:\s*=.*)?$", RegexOptions.IgnoreCase);
+        if (match.Success)
+        {
+            expressionName = NormalizeQueryName(match.Groups["name"].Value);
+            return !string.IsNullOrWhiteSpace(expressionName);
+        }
+
+        expressionName = string.Empty;
+        return false;
+    }
+
+    private static bool TryExtractTmdlBlockExpression(List<string> blockLines, out string expression)
+    {
+        expression = string.Empty;
+        if (blockLines.Count == 0)
+        {
+            return false;
+        }
+
+        var hasMKind = blockLines.Any(line =>
+            Regex.IsMatch(line.Trim(), @"^kind\s*(?:=|:)\s*m\s*$", RegexOptions.IgnoreCase));
+
+        var sourceLines = new List<string>();
+        for (var i = 0; i < blockLines.Count; i++)
+        {
+            var line = blockLines[i];
+            var trimmed = line.Trim();
+            if (!TryMatchTmdlSourceLine(trimmed, out var inlineSource))
+            {
+                continue;
+            }
+
+            var sourceIndent = GetLeadingWhitespaceWidth(line);
+            if (!string.IsNullOrWhiteSpace(inlineSource))
+            {
+                sourceLines.Add(inlineSource);
+            }
+
+            var cursor = i + 1;
+            for (; cursor < blockLines.Count; cursor++)
+            {
+                var candidate = blockLines[cursor];
+                if (candidate.Length == 0)
+                {
+                    sourceLines.Add(string.Empty);
+                    continue;
+                }
+
+                var candidateTrimmed = candidate.Trim();
+                if (candidateTrimmed.Length == 0)
+                {
+                    sourceLines.Add(string.Empty);
+                    continue;
+                }
+
+                var candidateIndent = GetLeadingWhitespaceWidth(candidate);
+                if (candidateIndent <= sourceIndent)
+                {
+                    break;
+                }
+
+                sourceLines.Add(candidate);
+            }
+
+            i = Math.Max(i, cursor - 1);
+        }
+
+        if (sourceLines.Count == 0)
+        {
+            return false;
+        }
+
+        expression = NormalizeTmdlSourceBlock(sourceLines).Trim();
+        if (string.IsNullOrWhiteSpace(expression))
+        {
+            return false;
+        }
+
+        // "kind: m" 是 TMDL 中 M 查询定义的常见标记；缺失时只要表达式看起来像 M 也允许通过。
+        if (hasMKind)
+        {
+            return true;
+        }
+
+        return LooksLikePowerQueryExpression(expression);
     }
 
     private static bool IsTmdlTopLevelHeader(string trimmedLine)

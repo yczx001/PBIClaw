@@ -7,7 +7,7 @@ internal sealed class OnDemandMetadataContextBuilder
 {
     private readonly PowerQueryMetadataReader _powerQueryReader = new();
 
-    public string Build(string connectionString, string? databaseName, ModelMetadata modelSnapshot, string userPrompt, bool includeHiddenObjects, string? modelSourcePath)
+    public string Build(string connectionString, string? databaseName, ModelMetadata modelSnapshot, string userPrompt, bool includeHiddenObjects, IReadOnlyList<string> modelSourcePaths)
     {
         if (string.IsNullOrWhiteSpace(connectionString) || string.IsNullOrWhiteSpace(userPrompt))
         {
@@ -43,7 +43,7 @@ internal sealed class OnDemandMetadataContextBuilder
             if (intent.IncludeDataSources)
             {
                 AppendDataSourcesSection(model, sb);
-                AppendPowerQueryQueriesSection(modelSnapshot, modelSourcePath, sb);
+                AppendPowerQueryQueriesSection(modelSnapshot, modelSourcePaths, sb);
             }
 
             if (intent.IncludeExpressions)
@@ -217,7 +217,7 @@ internal sealed class OnDemandMetadataContextBuilder
         }
     }
 
-    private void AppendPowerQueryQueriesSection(ModelMetadata modelSnapshot, string? modelSourcePath, StringBuilder sb)
+    private void AppendPowerQueryQueriesSection(ModelMetadata modelSnapshot, IReadOnlyList<string> modelSourcePaths, StringBuilder sb)
     {
         var loadedTableNames = modelSnapshot.Tables
             .Where(table => string.Equals(table.SourceType, "PowerQuery", StringComparison.OrdinalIgnoreCase))
@@ -225,7 +225,7 @@ internal sealed class OnDemandMetadataContextBuilder
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var queries = _powerQueryReader.TryReadQueries(modelSourcePath, loadedTableNames);
+        var queries = _powerQueryReader.TryReadQueries(modelSourcePaths, loadedTableNames);
         if (queries.Count == 0)
         {
             return;

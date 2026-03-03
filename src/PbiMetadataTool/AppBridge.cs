@@ -1240,7 +1240,7 @@ internal sealed class AppBridge
                 _model,
                 prompt,
                 includeHiddenObjects,
-                ResolveCurrentModelSourcePath());
+                ResolveCurrentModelSourcePaths());
         }
         catch
         {
@@ -1248,35 +1248,91 @@ internal sealed class AppBridge
         }
     }
 
-    private string? ResolveCurrentModelSourcePath()
+    private IReadOnlyList<string> ResolveCurrentModelSourcePaths()
     {
+        var candidates = new List<string>();
+
+        // 优先使用报表源路径（PBIP/PBIX），可最大概率命中 TMDL。
+        if (_report is not null && !string.IsNullOrWhiteSpace(_report.SourcePath))
+        {
+            AddPathCandidate(candidates, _report.SourcePath);
+        }
+
         if (_currentPort.HasValue)
         {
             try
             {
                 var hit = _detector.DiscoverInstances().FirstOrDefault(i => i.Port == _currentPort.Value);
-                if (hit is not null && !string.IsNullOrWhiteSpace(hit.WorkspacePath))
-                {
-                    return hit.WorkspacePath;
-                }
-
                 if (hit is not null && !string.IsNullOrWhiteSpace(hit.PbixPathHint))
                 {
-                    return hit.PbixPathHint;
+                    AddPathCandidate(candidates, hit.PbixPathHint);
+                }
+
+                if (hit is not null && !string.IsNullOrWhiteSpace(hit.WorkspacePath))
+                {
+                    AddPathCandidate(candidates, hit.WorkspacePath);
                 }
             }
             catch
             {
-                // Ignore and fallback to report path.
+                // Ignore detection errors and continue with collected paths.
             }
         }
 
-        if (_report is not null && !string.IsNullOrWhiteSpace(_report.SourcePath))
+        return candidates;
+    }
+
+    private static void AddPathCandidate(List<string> candidates, string? rawPath)
+    {
+        if (string.IsNullOrWhiteSpace(rawPath))
         {
-            return _report.SourcePath;
+            return;
         }
 
-        return null;
+        try
+        {
+            var fullPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(rawPath.Trim()));
+            AddDistinctPath(candidates, fullPath);
+
+            if (File.Exists(fullPath))
+            {
+                var fileDir = Path.GetDirectoryName(fullPath);
+                AddDistinctPath(candidates, fileDir);
+
+                if (!string.IsNullOrWhiteSpace(fileDir))
+                {
+                    var parent = Directory.GetParent(fileDir)?.FullName;
+                    AddDistinctPath(candidates, parent);
+                }
+
+                return;
+            }
+
+            if (Directory.Exists(fullPath))
+            {
+                var parent = Directory.GetParent(fullPath)?.FullName;
+                AddDistinctPath(candidates, parent);
+            }
+        }
+        catch
+        {
+            // Ignore invalid paths.
+        }
+    }
+
+    private static void AddDistinctPath(List<string> candidates, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        if (candidates.Any(existing => string.Equals(existing, path, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        candidates.Add(path);
     }
 
     private void SendConnectedModel()
