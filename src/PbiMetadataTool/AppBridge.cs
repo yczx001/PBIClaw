@@ -588,7 +588,8 @@ internal sealed class AppBridge
             {
                 dbName = string.IsNullOrWhiteSpace(_connectedModelDisplayName) ? _model.DatabaseName : _connectedModelDisplayName,
                 allowChanges = _settings.AllowModelChanges,
-                model = ModelDto(_model, _connectedModelDisplayName, _report)
+                model = ModelDto(_model, _connectedModelDisplayName, _report),
+                silent = true
             });
 
             Send("executeSuccess", new { results = results.ToArray() });
