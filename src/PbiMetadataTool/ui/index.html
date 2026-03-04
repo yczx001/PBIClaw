@@ -2367,20 +2367,23 @@ function appendPlanDetectedMsg(actionCount, autoStarted) {
 
   const text = document.createElement('div');
   text.textContent = autoStarted
-    ? ('📋 检测到 ' + actionCount + ' 项变更计划，已自动发起预检与执行。')
+    ? ('📋 检测到 ' + actionCount + ' 项变更计划，已自动接受并发起预检与执行。')
     : ('📋 检测到 ' + actionCount + ' 项变更计划，可手动跳转到“变更执行”页面处理。');
   bubble.appendChild(text);
 
-  const row = document.createElement('div');
-  row.className = 'msg-action-row';
-  const btn = document.createElement('button');
-  btn.className = 'topbar-btn msg-action-btn';
-  btn.textContent = '打开变更执行';
-  btn.addEventListener('click', function() {
-    showPage('writeback');
-  });
-  row.appendChild(btn);
-  bubble.appendChild(row);
+  let row = null;
+  if (!autoStarted) {
+    row = document.createElement('div');
+    row.className = 'msg-action-row';
+    const btn = document.createElement('button');
+    btn.className = 'topbar-btn msg-action-btn';
+    btn.textContent = '打开变更执行';
+    btn.addEventListener('click', function() {
+      showPage('writeback');
+    });
+    row.appendChild(btn);
+    bubble.appendChild(row);
+  }
 
   div.appendChild(bubble);
   area.appendChild(div);
