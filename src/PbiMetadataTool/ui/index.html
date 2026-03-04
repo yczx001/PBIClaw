@@ -1854,6 +1854,41 @@ document.getElementById('model-tree').addEventListener('dragstart', function(e) 
 
 // Chat
 let chatLive = null;
+let pendingExecuteMsgEl = null;
+let latestPlanNotice = null;
+let latestPlanSelection = null;
+
+function scrollChatToBottom(forceDefer) {
+  const area = document.getElementById('chat-area');
+  if (!area) return;
+
+  const apply = function() {
+    area.scrollTop = area.scrollHeight;
+  };
+
+  apply();
+  if (!forceDefer) return;
+
+  requestAnimationFrame(function() {
+    apply();
+    requestAnimationFrame(apply);
+  });
+  setTimeout(apply, 60);
+}
+
+function clearPendingExecuteMessage() {
+  if (!pendingExecuteMsgEl) return;
+  if (pendingExecuteMsgEl.isConnected) {
+    pendingExecuteMsgEl.remove();
+  }
+  pendingExecuteMsgEl = null;
+}
+
+function showPendingExecuteMessage() {
+  clearPendingExecuteMessage();
+  pendingExecuteMsgEl = appendMsg('system', '⏳ 正在执行中，请稍候...');
+  scrollChatToBottom(true);
+}
 
 function chatPhaseLabel(phase) {
   if (phase === 'context') return '准备上下文';
@@ -1893,7 +1928,7 @@ function ensureChatLiveSession() {
   row.appendChild(avatar);
   row.appendChild(bubble);
   area.appendChild(row);
-  area.scrollTop = area.scrollHeight;
+  scrollChatToBottom(false);
 
   chatLive = {
     requestId: '',
@@ -1988,8 +2023,7 @@ function renderChatStreamNow() {
   if (chatLive.phase === 'streaming' && !chatLive.cancelling) {
     chatLive.textEl.appendChild(chatLive.caretEl);
   }
-  const area = document.getElementById('chat-area');
-  area.scrollTop = area.scrollHeight;
+  scrollChatToBottom(false);
 }
 
 function finalizeChatLiveMessage(finalText) {
@@ -2294,7 +2328,8 @@ function appendMsg(role, text) {
     div.innerHTML = '<div class="msg-avatar">' + avatar + '</div><div class="msg-bubble">' + formatText(text) + '</div>';
   }
   area.appendChild(div);
-  area.scrollTop = area.scrollHeight;
+  scrollChatToBottom(false);
+  return div;
 }
 
 function appendPlanDetectedMsg(actionCount, autoStarted) {
@@ -2323,7 +2358,34 @@ function appendPlanDetectedMsg(actionCount, autoStarted) {
 
   div.appendChild(bubble);
   area.appendChild(div);
-  area.scrollTop = area.scrollHeight;
+  scrollChatToBottom(false);
+
+  latestPlanNotice = {
+    rowEl: div,
+    textEl: text,
+    actionRowEl: row,
+    total: Number(actionCount) || 0
+  };
+  latestPlanSelection = null;
+}
+
+function summarizePlanDecision(accepted, rejected) {
+  const parts = [];
+  if (accepted > 0) parts.push('已接受' + accepted + '项');
+  if (rejected > 0) parts.push('已拒绝' + rejected + '项');
+  return parts.join('，');
+}
+
+function updateLatestPlanNoticeResult(accepted, rejected) {
+  if (!latestPlanNotice || !latestPlanNotice.textEl) return;
+  const summary = summarizePlanDecision(accepted, rejected);
+  latestPlanNotice.textEl.textContent = summary
+    ? ('📋 变更计划已处理：' + summary + '。')
+    : '📋 变更计划已处理。';
+
+  if (latestPlanNotice.actionRowEl && latestPlanNotice.actionRowEl.isConnected) {
+    latestPlanNotice.actionRowEl.remove();
+  }
 }
 
 function insertTextAtCursor(el, text) {
@@ -2651,6 +2713,13 @@ function executePlanIndices(indices, autoExecute) {
     toast('请至少选择一个动作', 'warn');
     return false;
   }
+  const total = State.pendingPlan && Array.isArray(State.pendingPlan.actions)
+    ? State.pendingPlan.actions.length
+    : (latestPlanNotice ? latestPlanNotice.total : indices.length);
+  latestPlanSelection = {
+    accepted: indices.length,
+    rejected: Math.max(0, total - indices.length)
+  };
   bridge.send('executePlan', {
     selectedIndices: indices,
     autoExecute: !!autoExecute
@@ -2665,6 +2734,11 @@ document.getElementById('btn-uncheck-all').addEventListener('click', function() 
   document.querySelectorAll('#action-list input[type=checkbox]').forEach(function(c) { c.checked = false; });
 });
 document.getElementById('btn-discard-plan').addEventListener('click', function() {
+  const total = State.pendingPlan && Array.isArray(State.pendingPlan.actions)
+    ? State.pendingPlan.actions.length
+    : (latestPlanNotice ? latestPlanNotice.total : 0);
+  updateLatestPlanNoticeResult(0, total);
+  latestPlanSelection = null;
   bridge.send('discardPlan', {});
   renderPlan(null);
 });
@@ -2724,8 +2798,8 @@ document.getElementById('pf-cancel').addEventListener('click', function() {
 });
 document.getElementById('pf-confirm').addEventListener('click', function() {
   document.getElementById('preflight-overlay').classList.remove('show');
-  appendMsg('system', '⏳ 正在执行中，请稍候...');
   showPage('dashboard');
+  showPendingExecuteMessage();
   bridge.send('confirmExecute', {});
 });
 document.getElementById('pf-autoexec').addEventListener('change', function() {
@@ -3175,14 +3249,23 @@ const App = {
         showPreflight(msg.payload);
         break;
       case 'executeSuccess':
+        clearPendingExecuteMessage();
+        if (latestPlanSelection) {
+          updateLatestPlanNoticeResult(latestPlanSelection.accepted, latestPlanSelection.rejected);
+        }
+        latestPlanSelection = null;
         renderPlan(null);
+        showPage('dashboard');
         appendMsg('system', '✅ 执行完成:\n' + (msg.payload.results||[]).join('\n'));
         toast('执行成功', 'success');
-        showPage('dashboard');
+        scrollChatToBottom(true);
         break;
       case 'executeError':
+        clearPendingExecuteMessage();
+        showPage('dashboard');
         appendMsg('system', '❌ 执行失败: ' + msg.payload.error);
         toast('执行失败', 'error');
+        scrollChatToBottom(true);
         break;
       case 'backups':
         renderBackups(msg.payload.list || []);
@@ -3242,7 +3325,9 @@ const App = {
         toast(msg.payload.text, msg.payload.level || 'info');
         break;
       case 'log':
+        clearPendingExecuteMessage();
         appendMsg('system', msg.payload.text);
+        scrollChatToBottom(true);
         break;
     }
   }
