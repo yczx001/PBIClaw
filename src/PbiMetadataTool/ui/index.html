@@ -311,12 +311,12 @@ input.setting-input[type='number']::-webkit-inner-spin-button { -webkit-appearan
 .dlg-btn.primary:hover { background: #6ba3ff; }
 .dlg-btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .dlg-btn.danger:hover { background: #f87171; }
-#autoexec-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 210; backdrop-filter: blur(4px); }
-#autoexec-overlay.show { display: flex; }
-#autoexec-dialog { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; width: 460px; max-width: calc(100vw - 36px); display: flex; flex-direction: column; overflow: hidden; }
-#autoexec-dialog .dlg-header { padding: 16px 20px; border-bottom: 1px solid var(--border); font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
-#autoexec-dialog .dlg-body { padding: 16px 20px; font-size: 12.5px; color: var(--text2); line-height: 1.65; }
-#autoexec-dialog .dlg-footer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+#autoexec-overlay, #discard-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 210; backdrop-filter: blur(4px); }
+#autoexec-overlay.show, #discard-overlay.show { display: flex; }
+#autoexec-dialog, #discard-dialog { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; width: 460px; max-width: calc(100vw - 36px); display: flex; flex-direction: column; overflow: hidden; }
+#autoexec-dialog .dlg-header, #discard-dialog .dlg-header { padding: 16px 20px; border-bottom: 1px solid var(--border); font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+#autoexec-dialog .dlg-body, #discard-dialog .dlg-body { padding: 16px 20px; font-size: 12.5px; color: var(--text2); line-height: 1.65; }
+#autoexec-dialog .dlg-footer, #discard-dialog .dlg-footer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
 
 /* ── Startup guide ── */
 #onboarding-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 320; backdrop-filter: blur(4px); }
@@ -559,6 +559,12 @@ select.setting-input { cursor: pointer; }
     <div class="page" id="page-backups">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
         <h2 style="font-size:16px;font-weight:700">备份与回滚</h2>
+        <div class="topbar-spacer"></div>
+        <div class="plan-actions-row" style="gap:10px">
+          <button class="topbar-btn" id="btn-refresh-backups">刷新</button>
+          <button class="topbar-btn" id="btn-open-folder">打开目录</button>
+          <button class="topbar-btn primary" id="btn-rollback">执行回滚</button>
+        </div>
       </div>
       <div class="card" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
         <div style="overflow-y:auto;flex:1">
@@ -567,11 +573,6 @@ select.setting-input { cursor: pointer; }
             <tbody id="backup-tbody"></tbody>
           </table>
         </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">
-        <button class="topbar-btn" id="btn-refresh-backups">刷新</button>
-        <button class="topbar-btn" id="btn-open-folder">打开目录</button>
-        <button class="topbar-btn primary" id="btn-rollback">执行回滚</button>
       </div>
     </div>
 
@@ -829,6 +830,23 @@ select.setting-input { cursor: pointer; }
     <div class="dlg-footer">
       <button class="dlg-btn" id="autoexec-cancel">取消</button>
       <button class="dlg-btn danger" id="autoexec-confirm">确认启用</button>
+    </div>
+  </div>
+</div>
+
+<!-- Discard Plan Confirm Dialog -->
+<div id="discard-overlay">
+  <div id="discard-dialog">
+    <div class="dlg-header">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+      丢弃待执行计划
+    </div>
+    <div class="dlg-body">
+      确认丢弃当前待执行计划吗？该操作不可撤销。
+    </div>
+    <div class="dlg-footer">
+      <button class="dlg-btn" id="discard-cancel">取消</button>
+      <button class="dlg-btn danger" id="discard-confirm">确认丢弃</button>
     </div>
   </div>
 </div>
@@ -2796,6 +2814,25 @@ function hideAutoExecConfirm() {
   document.getElementById('autoexec-overlay').classList.remove('show');
 }
 
+function showDiscardConfirm() {
+  document.getElementById('discard-overlay').classList.add('show');
+}
+
+function hideDiscardConfirm() {
+  document.getElementById('discard-overlay').classList.remove('show');
+}
+
+function discardCurrentPlan() {
+  const total = State.pendingPlan && Array.isArray(State.pendingPlan.actions)
+    ? State.pendingPlan.actions.length
+    : (latestPlanNotice ? latestPlanNotice.total : 0);
+  updateLatestPlanNoticeResult(0, total, 0);
+  latestPlanSelection = null;
+  stagedPlanTransition = null;
+  bridge.send('discardPlan', {});
+  renderPlan(null);
+}
+
 function setAllPlanActionStates(state) {
   if (!State.pendingPlan || !Array.isArray(State.pendingPlan.actions)) return;
   const count = State.pendingPlan.actions.length;
@@ -2883,17 +2920,7 @@ document.getElementById('action-list').addEventListener('click', function(e) {
   setPlanActionState(index, next);
 });
 document.getElementById('btn-discard-plan').addEventListener('click', function() {
-  if (!window.confirm('确认丢弃当前待执行计划吗？该操作不可撤销。')) {
-    return;
-  }
-  const total = State.pendingPlan && Array.isArray(State.pendingPlan.actions)
-    ? State.pendingPlan.actions.length
-    : (latestPlanNotice ? latestPlanNotice.total : 0);
-  updateLatestPlanNoticeResult(0, total, 0);
-  latestPlanSelection = null;
-  stagedPlanTransition = null;
-  bridge.send('discardPlan', {});
-  renderPlan(null);
+  showDiscardConfirm();
 });
 document.getElementById('btn-execute').addEventListener('click', function() {
   executePlanDecision(collectPlanDecision(State.pendingPlan), !!State.uiPrefs.autoExecuteChanges);
@@ -2917,6 +2944,13 @@ document.getElementById('autoexec-confirm').addEventListener('click', function()
   if (!autoExecPendingEnable) return;
   hideAutoExecConfirm();
   setAutoExecuteEnabled(true, true);
+});
+document.getElementById('discard-cancel').addEventListener('click', function() {
+  hideDiscardConfirm();
+});
+document.getElementById('discard-confirm').addEventListener('click', function() {
+  hideDiscardConfirm();
+  discardCurrentPlan();
 });
 
 // Preflight
@@ -3418,7 +3452,13 @@ const App = {
       case 'executeSuccess':
         clearPendingExecuteMessage();
         if (msg.payload && Object.prototype.hasOwnProperty.call(msg.payload, 'remainingPlan')) {
-          renderPlan(msg.payload.remainingPlan || null);
+          const remaining = msg.payload.remainingPlan || null;
+          if (remaining && Array.isArray(remaining.actions)) {
+            if (!Array.isArray(remaining.actionStates) || remaining.actionStates.length !== remaining.actions.length) {
+              remaining.actionStates = Array(remaining.actions.length).fill(PLAN_ACTION_PENDING);
+            }
+          }
+          renderPlan(remaining);
         } else if (stagedPlanTransition && stagedPlanTransition.applied) {
           renderPlan(stagedPlanTransition.pendingPlan);
         } else {

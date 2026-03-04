@@ -628,7 +628,11 @@ internal sealed class AppBridge
             Send("executeSuccess", new
             {
                 results = results.ToArray(),
-                remainingPlan = remainingPlan is null ? null : PlanDto(remainingPlan)
+                remainingPlan = remainingPlan is null
+                    ? null
+                    : PlanDto(
+                        remainingPlan,
+                        actionStates: Enumerable.Repeat("pending", remainingPlan.Actions.Count).ToArray())
             });
             AppendPlanHistory(
                 kind: isRollback ? "rollback_execute_success" : "execute_success",
@@ -2188,11 +2192,15 @@ ADDCOLUMNS(
         reason = a.Reason
     };
 
-    private static object PlanDto(AbiActionPlan plan, string? preview = null) => new
+    private static object PlanDto(
+        AbiActionPlan plan,
+        string? preview = null,
+        IReadOnlyList<string>? actionStates = null) => new
     {
         summary = plan.Summary,
         preview = string.IsNullOrWhiteSpace(preview) ? AbiActionPlanPreview.BuildText(plan) : preview,
-        actions = plan.Actions.Select(ActionDto).ToArray()
+        actions = plan.Actions.Select(ActionDto).ToArray(),
+        actionStates = actionStates?.ToArray()
     };
 
     private static object SettingsDto(AbiAssistantSettings s) => new
