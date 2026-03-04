@@ -44,6 +44,8 @@ internal sealed class AppBridge
     private string _lastTabularServer = string.Empty;
     private AbiActionPlan? _pendingPlan;
     private AbiActionPlan? _preflightPlan; // plan waiting for user confirmation
+    private AbiActionPlan? _preflightSourcePlan;
+    private IReadOnlyList<int> _preflightPendingIndices = [];
     private bool _preflightIsRollback;
     private bool _externalToolAutoConnectAttempted;
     private bool _chatCancelRequestedByUser;
@@ -316,12 +318,9 @@ internal sealed class AppBridge
             if (runtimeSettings.AllowModelChanges && AbiActionPlanParser.TryExtract(reply, out var plan, out var preview, out _))
             {
                 _pendingPlan = plan;
-                Send("planDetected", new
-                {
-                    summary = plan.Summary,
-                    preview,
-                    actions = plan.Actions.Select(ActionDto).ToArray()
-                });
+                _preflightSourcePlan = null;
+                _preflightPendingIndices = [];
+                Send("planDetected", PlanDto(plan, preview));
 
                 AppendPlanHistory(
                     kind: "plan_detected",
@@ -481,6 +480,8 @@ internal sealed class AppBridge
         }
         _pendingPlan = null;
         _preflightPlan = null;
+        _preflightSourcePlan = null;
+        _preflightPendingIndices = [];
         _preflightIsRollback = false;
     }
 
@@ -505,6 +506,7 @@ internal sealed class AppBridge
         var indices = p["selectedIndices"]?.AsArray()
             .Select(n => n?.GetValue<int>() ?? -1)
             .Where(i => i >= 0 && i < _pendingPlan.Actions.Count)
+            .Distinct()
             .OrderBy(i => i)
             .ToList() ?? [];
 
@@ -515,8 +517,17 @@ internal sealed class AppBridge
         }
 
         var autoExecute = p["autoExecute"]?.GetValue<bool>() ?? false;
+        var selectedSet = indices.ToHashSet();
+        var pendingIndices = p["pendingIndices"]?.AsArray()
+            .Select(n => n?.GetValue<int>() ?? -1)
+            .Where(i => i >= 0 && i < _pendingPlan.Actions.Count && !selectedSet.Contains(i))
+            .Distinct()
+            .OrderBy(i => i)
+            .ToList() ?? [];
         var selectedActions = indices.Select(i => _pendingPlan.Actions[i]).ToList();
         _preflightPlan = new AbiActionPlan(_pendingPlan.Summary, selectedActions);
+        _preflightSourcePlan = _pendingPlan;
+        _preflightPendingIndices = pendingIndices;
         _preflightIsRollback = false;
 
         try
@@ -570,6 +581,8 @@ internal sealed class AppBridge
     {
         if (_preflightPlan is null || !_currentPort.HasValue || _model is null) return;
         var currentPlan = _preflightPlan;
+        var sourcePlan = _preflightSourcePlan ?? _pendingPlan;
+        var pendingIndices = _preflightPendingIndices;
         var isRollback = _preflightIsRollback;
         try
         {
@@ -577,8 +590,25 @@ internal sealed class AppBridge
             Send("log", new { text = $"执行前已创建备份:\n- {snapshot}\n- {rollback}" });
 
             var results = _writer.ApplyActions(_currentPort.Value, _model.DatabaseName, currentPlan);
-            _pendingPlan = null;
+            AbiActionPlan? remainingPlan = null;
+            if (!isRollback && sourcePlan is not null && pendingIndices.Count > 0)
+            {
+                var remaining = pendingIndices
+                    .Where(i => i >= 0 && i < sourcePlan.Actions.Count)
+                    .Distinct()
+                    .OrderBy(i => i)
+                    .Select(i => sourcePlan.Actions[i])
+                    .ToList();
+                if (remaining.Count > 0)
+                {
+                    remainingPlan = new AbiActionPlan(sourcePlan.Summary, remaining);
+                }
+            }
+
+            _pendingPlan = remainingPlan;
             _preflightPlan = null;
+            _preflightSourcePlan = null;
+            _preflightPendingIndices = [];
             _preflightIsRollback = false;
 
             // Refresh model
@@ -592,7 +622,11 @@ internal sealed class AppBridge
                 silent = true
             });
 
-            Send("executeSuccess", new { results = results.ToArray() });
+            Send("executeSuccess", new
+            {
+                results = results.ToArray(),
+                remainingPlan = remainingPlan is null ? null : PlanDto(remainingPlan)
+            });
             AppendPlanHistory(
                 kind: isRollback ? "rollback_execute_success" : "execute_success",
                 title: isRollback ? $"回滚执行完成（{currentPlan.Actions.Count} 项）" : $"变更执行完成（{currentPlan.Actions.Count} 项）",
@@ -638,6 +672,8 @@ internal sealed class AppBridge
 
             var analysis = _writer.AnalyzeActions(_currentPort.Value, _model.DatabaseName, plan);
             _preflightPlan = plan;
+            _preflightSourcePlan = null;
+            _preflightPendingIndices = [];
             _preflightIsRollback = true;
             Send("preflight", new
             {
@@ -2074,6 +2110,13 @@ internal sealed class AppBridge
         modelPermission = a.ModelPermission,
         metadataPermission = a.MetadataPermission,
         reason = a.Reason
+    };
+
+    private static object PlanDto(AbiActionPlan plan, string? preview = null) => new
+    {
+        summary = plan.Summary,
+        preview = string.IsNullOrWhiteSpace(preview) ? AbiActionPlanPreview.BuildText(plan) : preview,
+        actions = plan.Actions.Select(ActionDto).ToArray()
     };
 
     private static object SettingsDto(AbiAssistantSettings s) => new

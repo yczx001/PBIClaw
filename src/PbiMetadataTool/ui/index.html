@@ -169,13 +169,21 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 #plan-empty { min-height: 170px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text3); }
 #plan-empty .empty-icon { font-size: 48px; opacity: .4; }
 #plan-content { display: flex; flex-direction: column; gap: 12px; }
-.action-item { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; transition: border-color .15s; }
+.action-item { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; transition: border-color .15s, background .15s; }
 .action-item:hover { border-color: var(--accent); }
-.action-item input[type=checkbox] { margin-top: 2px; accent-color: var(--accent); width: 15px; height: 15px; flex-shrink: 0; cursor: pointer; }
+.action-item.state-allow { border-color: rgba(34,197,94,.42); background: rgba(34,197,94,.08); }
+.action-item.state-reject { border-color: rgba(239,68,68,.4); background: rgba(239,68,68,.08); }
+.action-item.state-pending { border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.08); }
 .action-body { flex: 1; }
 .action-type { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); margin-bottom: 3px; }
 .action-target { font-size: 13px; font-weight: 600; color: var(--text); }
 .action-reason { font-size: 12px; color: var(--text2); margin-top: 3px; }
+.action-state-group { display: inline-flex; gap: 4px; flex-shrink: 0; align-items: center; margin-top: 1px; }
+.action-state-btn { height: 24px; min-width: 44px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); font-size: 11px; font-family: var(--font); cursor: pointer; transition: all .15s; }
+.action-state-btn:hover { border-color: var(--accent); color: var(--text); }
+.action-state-btn.active.allow { border-color: rgba(34,197,94,.45); color: var(--success); background: rgba(34,197,94,.12); }
+.action-state-btn.active.reject { border-color: rgba(239,68,68,.45); color: var(--danger); background: rgba(239,68,68,.12); }
+.action-state-btn.active.pending { border-color: rgba(245,158,11,.45); color: var(--warn); background: rgba(245,158,11,.14); }
 #plan-preview-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; font-family: var(--mono); font-size: 12px; color: var(--text2); white-space: pre-wrap; overflow-y: auto; max-height: 200px; }
 .plan-actions-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .writeback-options { display: flex; align-items: center; gap: 10px; padding: 10px 12px; width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
@@ -525,8 +533,8 @@ select.setting-input { cursor: pointer; }
           <h2 id="plan-title">变更计划</h2>
           <div class="topbar-spacer"></div>
           <div class="plan-actions-row">
-            <button class="topbar-btn" id="btn-check-all">全选</button>
-            <button class="topbar-btn" id="btn-uncheck-all">清空</button>
+            <button class="topbar-btn" id="btn-check-all">全部允许</button>
+            <button class="topbar-btn" id="btn-uncheck-all">全部待定</button>
             <button class="topbar-btn" id="btn-discard-plan">丢弃</button>
             <button class="topbar-btn primary" id="btn-execute">预检并执行</button>
           </div>
@@ -1857,6 +1865,7 @@ let chatLive = null;
 let pendingExecuteMsgEl = null;
 let latestPlanNotice = null;
 let latestPlanSelection = null;
+let stagedPlanTransition = null;
 
 function scrollChatToBottom(forceDefer) {
   const area = document.getElementById('chat-area');
@@ -2170,6 +2179,7 @@ function renderMarkdownBlocks(text) {
   const out = [];
   let listType = '';
   let i = 0;
+  const olPattern = /^\d+(?:\.\s+|\)\s+|）\s+|、\s*)(.+)$/;
 
   function closeList() {
     if (!listType) return;
@@ -2225,6 +2235,22 @@ function renderMarkdownBlocks(text) {
     const trimmed = line.trim();
 
     if (!trimmed) {
+      if (listType) {
+        let j = i + 1;
+        while (j < lines.length && !String(lines[j] || '').trim()) {
+          j += 1;
+        }
+        if (j < lines.length) {
+          const next = String(lines[j] || '').trim();
+          const continueList = listType === 'ul'
+            ? /^[-*+]\s+(.+)$/.test(next)
+            : olPattern.test(next);
+          if (continueList) {
+            i += 1;
+            continue;
+          }
+        }
+      }
       closeList();
       i += 1;
       continue;
@@ -2280,7 +2306,7 @@ function renderMarkdownBlocks(text) {
       continue;
     }
 
-    const ol = trimmed.match(/^\d+\.\s+(.+)$/);
+    const ol = trimmed.match(olPattern);
     if (ol) {
       if (listType !== 'ol') {
         closeList();
@@ -2367,18 +2393,20 @@ function appendPlanDetectedMsg(actionCount, autoStarted) {
     total: Number(actionCount) || 0
   };
   latestPlanSelection = null;
+  stagedPlanTransition = null;
 }
 
-function summarizePlanDecision(accepted, rejected) {
+function summarizePlanDecision(accepted, rejected, pending) {
   const parts = [];
   if (accepted > 0) parts.push('已接受' + accepted + '项');
   if (rejected > 0) parts.push('已拒绝' + rejected + '项');
+  if (pending > 0) parts.push('待定' + pending + '项');
   return parts.join('，');
 }
 
-function updateLatestPlanNoticeResult(accepted, rejected) {
+function updateLatestPlanNoticeResult(accepted, rejected, pending) {
   if (!latestPlanNotice || !latestPlanNotice.textEl) return;
-  const summary = summarizePlanDecision(accepted, rejected);
+  const summary = summarizePlanDecision(accepted, rejected, pending || 0);
   latestPlanNotice.textEl.textContent = summary
     ? ('📋 变更计划已处理：' + summary + '。')
     : '📋 变更计划已处理。';
@@ -2605,6 +2633,57 @@ function updateInstances(list) {
 }
 
 // Writeback
+const PLAN_ACTION_ALLOW = 'allow';
+const PLAN_ACTION_REJECT = 'reject';
+const PLAN_ACTION_PENDING = 'pending';
+
+function normalizePlanActionState(state) {
+  if (state === PLAN_ACTION_REJECT) return PLAN_ACTION_REJECT;
+  if (state === PLAN_ACTION_PENDING) return PLAN_ACTION_PENDING;
+  return PLAN_ACTION_ALLOW;
+}
+
+function clonePlan(plan) {
+  if (!plan || !Array.isArray(plan.actions)) return null;
+  return {
+    summary: plan.summary || '',
+    preview: plan.preview || '',
+    actions: plan.actions.map(function(a) { return Object.assign({}, a); }),
+    actionStates: ensurePlanActionStates(plan).slice()
+  };
+}
+
+function ensurePlanActionStates(plan) {
+  const count = plan && Array.isArray(plan.actions) ? plan.actions.length : 0;
+  const raw = plan && Array.isArray(plan.actionStates) ? plan.actionStates : [];
+  const states = [];
+  for (let i = 0; i < count; i++) {
+    states.push(normalizePlanActionState(raw[i]));
+  }
+  return states;
+}
+
+function buildPlanSubset(plan, indices, defaultState) {
+  if (!plan || !Array.isArray(plan.actions)) return null;
+  if (!indices || !indices.length) return null;
+  const actions = [];
+  for (let i = 0; i < indices.length; i++) {
+    const idx = indices[i];
+    if (idx >= 0 && idx < plan.actions.length) {
+      actions.push(Object.assign({}, plan.actions[idx]));
+    }
+  }
+  if (!actions.length) return null;
+  const states = [];
+  for (let i = 0; i < actions.length; i++) states.push(normalizePlanActionState(defaultState));
+  return {
+    summary: plan.summary || '',
+    preview: plan.preview || '',
+    actions: actions,
+    actionStates: states
+  };
+}
+
 function renderPlan(plan) {
   State.pendingPlan = plan;
   const empty = document.getElementById('plan-empty');
@@ -2619,19 +2698,28 @@ function renderPlan(plan) {
   empty.style.display = 'none';
   content.style.display = '';
   badge.classList.add('show');
+  plan.actionStates = ensurePlanActionStates(plan);
   document.getElementById('plan-title').textContent = plan.summary || '变更计划';
   document.getElementById('plan-preview-box').textContent = plan.preview || '';
   const list = document.getElementById('action-list');
   list.innerHTML = '';
   plan.actions.forEach(function(a, i) {
+    const state = normalizePlanActionState(plan.actionStates[i]);
+    const allowActive = state === PLAN_ACTION_ALLOW ? ' active' : '';
+    const rejectActive = state === PLAN_ACTION_REJECT ? ' active' : '';
+    const pendingActive = state === PLAN_ACTION_PENDING ? ' active' : '';
     const item = document.createElement('div');
-    item.className = 'action-item';
+    item.className = 'action-item state-' + state;
     const target = (a.table && a.name) ? esc(a.table) + ' · ' + esc(a.name) : esc(a.table || a.fromTable || a.name || '');
-    item.innerHTML = '<input type="checkbox" checked data-index="' + i + '">' +
-      '<div class="action-body">' +
+    item.innerHTML = '<div class="action-body">' +
       '<div class="action-type">' + esc(a.type) + '</div>' +
       '<div class="action-target">' + target + '</div>' +
       (a.reason ? '<div class="action-reason">' + esc(a.reason) + '</div>' : '') +
+      '</div>' +
+      '<div class="action-state-group" data-index="' + i + '">' +
+      '<button class="action-state-btn allow' + allowActive + '" data-state="' + PLAN_ACTION_ALLOW + '">允许</button>' +
+      '<button class="action-state-btn reject' + rejectActive + '" data-state="' + PLAN_ACTION_REJECT + '">拒绝</button>' +
+      '<button class="action-state-btn pending' + pendingActive + '" data-state="' + PLAN_ACTION_PENDING + '">待定</button>' +
       '</div>';
     list.appendChild(item);
   });
@@ -2693,57 +2781,100 @@ function hideAutoExecConfirm() {
   document.getElementById('autoexec-overlay').classList.remove('show');
 }
 
-function selectedActionIndices() {
-  const checked = [];
-  document.querySelectorAll('#action-list input[type=checkbox]').forEach(function(c, i) {
-    if (c.checked) checked.push(i);
-  });
-  return checked;
+function setAllPlanActionStates(state) {
+  if (!State.pendingPlan || !Array.isArray(State.pendingPlan.actions)) return;
+  const count = State.pendingPlan.actions.length;
+  const next = normalizePlanActionState(state);
+  State.pendingPlan.actionStates = Array(count).fill(next);
+  renderPlan(State.pendingPlan);
 }
 
-function allActionIndices(plan) {
-  if (!plan || !Array.isArray(plan.actions)) return [];
-  const out = [];
-  for (let i = 0; i < plan.actions.length; i++) out.push(i);
+function setPlanActionState(index, state) {
+  if (!State.pendingPlan || !Array.isArray(State.pendingPlan.actions)) return;
+  const states = ensurePlanActionStates(State.pendingPlan);
+  if (index < 0 || index >= states.length) return;
+  states[index] = normalizePlanActionState(state);
+  State.pendingPlan.actionStates = states;
+  renderPlan(State.pendingPlan);
+}
+
+function collectPlanDecision(plan) {
+  const out = { allow: [], reject: [], pending: [], total: 0 };
+  if (!plan || !Array.isArray(plan.actions) || plan.actions.length === 0) return out;
+  const states = ensurePlanActionStates(plan);
+  out.total = states.length;
+  for (let i = 0; i < states.length; i++) {
+    const state = normalizePlanActionState(states[i]);
+    if (state === PLAN_ACTION_REJECT) {
+      out.reject.push(i);
+    } else if (state === PLAN_ACTION_PENDING) {
+      out.pending.push(i);
+    } else {
+      out.allow.push(i);
+    }
+  }
   return out;
 }
 
-function executePlanIndices(indices, autoExecute) {
-  if (!indices.length) {
-    toast('请至少选择一个动作', 'warn');
+function applyStagedPlanTransition() {
+  if (!stagedPlanTransition || stagedPlanTransition.applied) return;
+  const selection = stagedPlanTransition.selection || latestPlanSelection || { accepted: 0, rejected: 0, pending: 0 };
+  updateLatestPlanNoticeResult(selection.accepted, selection.rejected, selection.pending);
+  renderPlan(stagedPlanTransition.pendingPlan);
+  stagedPlanTransition.applied = true;
+}
+
+function executePlanDecision(decision, autoExecute) {
+  if (!decision || !decision.allow || decision.allow.length === 0) {
+    toast('请至少将一个动作设为“允许”', 'warn');
     return false;
   }
-  const total = State.pendingPlan && Array.isArray(State.pendingPlan.actions)
-    ? State.pendingPlan.actions.length
-    : (latestPlanNotice ? latestPlanNotice.total : indices.length);
   latestPlanSelection = {
-    accepted: indices.length,
-    rejected: Math.max(0, total - indices.length)
+    accepted: decision.allow.length,
+    rejected: decision.reject.length,
+    pending: decision.pending.length
+  };
+  stagedPlanTransition = {
+    selection: Object.assign({}, latestPlanSelection),
+    originalPlan: clonePlan(State.pendingPlan),
+    pendingPlan: buildPlanSubset(State.pendingPlan, decision.pending, PLAN_ACTION_PENDING),
+    applied: false
   };
   bridge.send('executePlan', {
-    selectedIndices: indices,
+    selectedIndices: decision.allow,
+    pendingIndices: decision.pending,
     autoExecute: !!autoExecute
   });
   return true;
 }
 
 document.getElementById('btn-check-all').addEventListener('click', function() {
-  document.querySelectorAll('#action-list input[type=checkbox]').forEach(function(c) { c.checked = true; });
+  setAllPlanActionStates(PLAN_ACTION_ALLOW);
 });
 document.getElementById('btn-uncheck-all').addEventListener('click', function() {
-  document.querySelectorAll('#action-list input[type=checkbox]').forEach(function(c) { c.checked = false; });
+  setAllPlanActionStates(PLAN_ACTION_PENDING);
+});
+document.getElementById('action-list').addEventListener('click', function(e) {
+  const btn = e.target.closest('.action-state-btn');
+  if (!btn) return;
+  const group = btn.closest('.action-state-group');
+  if (!group) return;
+  const index = parseInt(group.dataset.index || '-1', 10);
+  if (index < 0) return;
+  setPlanActionState(index, btn.dataset.state || PLAN_ACTION_ALLOW);
 });
 document.getElementById('btn-discard-plan').addEventListener('click', function() {
   const total = State.pendingPlan && Array.isArray(State.pendingPlan.actions)
     ? State.pendingPlan.actions.length
     : (latestPlanNotice ? latestPlanNotice.total : 0);
-  updateLatestPlanNoticeResult(0, total);
+  updateLatestPlanNoticeResult(0, total, 0);
   latestPlanSelection = null;
+  stagedPlanTransition = null;
   bridge.send('discardPlan', {});
   renderPlan(null);
 });
 document.getElementById('btn-execute').addEventListener('click', function() {
-  executePlanIndices(selectedActionIndices(), !!State.uiPrefs.autoExecuteChanges);
+  executePlanDecision(collectPlanDecision(State.pendingPlan), !!State.uiPrefs.autoExecuteChanges);
 });
 
 document.getElementById('wb-auto-toggle').addEventListener('click', function() {
@@ -2769,6 +2900,9 @@ document.getElementById('autoexec-confirm').addEventListener('click', function()
 // Preflight
 function showPreflight(data) {
   if (data.autoExecute && !data.hasErrors) {
+    applyStagedPlanTransition();
+    showPage('dashboard');
+    showPendingExecuteMessage();
     return;
   }
   const body = document.getElementById('pf-body');
@@ -2789,15 +2923,24 @@ function showPreflight(data) {
   (data.errors||[]).forEach(function(m) {
     body.innerHTML += '<div class="preflight-item error">✖ ' + esc(m) + '</div>';
   });
+  if (data.hasErrors) {
+    stagedPlanTransition = null;
+    latestPlanSelection = null;
+  }
   confirmBtn.style.display = data.hasErrors ? 'none' : '';
   confirmBtn.className = 'dlg-btn ' + (data.warnings && data.warnings.length ? 'danger' : 'primary');
   document.getElementById('preflight-overlay').classList.add('show');
 }
 document.getElementById('pf-cancel').addEventListener('click', function() {
   document.getElementById('preflight-overlay').classList.remove('show');
+  if (stagedPlanTransition && !stagedPlanTransition.applied) {
+    stagedPlanTransition = null;
+    latestPlanSelection = null;
+  }
 });
 document.getElementById('pf-confirm').addEventListener('click', function() {
   document.getElementById('preflight-overlay').classList.remove('show');
+  applyStagedPlanTransition();
   showPage('dashboard');
   showPendingExecuteMessage();
   bridge.send('confirmExecute', {});
@@ -3238,9 +3381,11 @@ const App = {
         break;
       case 'planDetected':
         renderPlan(msg.payload);
+        stagedPlanTransition = null;
+        latestPlanSelection = null;
         if (State.uiPrefs.autoExecuteChanges) {
           appendPlanDetectedMsg(msg.payload.actions.length, true);
-          executePlanIndices(allActionIndices(msg.payload), true);
+          executePlanDecision(collectPlanDecision(State.pendingPlan), true);
         } else {
           appendPlanDetectedMsg(msg.payload.actions.length, false);
         }
@@ -3250,11 +3395,15 @@ const App = {
         break;
       case 'executeSuccess':
         clearPendingExecuteMessage();
-        if (latestPlanSelection) {
-          updateLatestPlanNoticeResult(latestPlanSelection.accepted, latestPlanSelection.rejected);
+        if (msg.payload && Object.prototype.hasOwnProperty.call(msg.payload, 'remainingPlan')) {
+          renderPlan(msg.payload.remainingPlan || null);
+        } else if (stagedPlanTransition && stagedPlanTransition.applied) {
+          renderPlan(stagedPlanTransition.pendingPlan);
+        } else {
+          renderPlan(null);
         }
+        stagedPlanTransition = null;
         latestPlanSelection = null;
-        renderPlan(null);
         showPage('dashboard');
         appendMsg('system', '✅ 执行完成:\n' + (msg.payload.results||[]).join('\n'));
         toast('执行成功', 'success');
@@ -3262,6 +3411,14 @@ const App = {
         break;
       case 'executeError':
         clearPendingExecuteMessage();
+        if (stagedPlanTransition && stagedPlanTransition.applied && stagedPlanTransition.originalPlan) {
+          renderPlan(clonePlan(stagedPlanTransition.originalPlan));
+          if (latestPlanNotice && latestPlanNotice.textEl) {
+            latestPlanNotice.textEl.textContent = '📋 变更计划执行失败，可在“变更执行”页面重试。';
+          }
+        }
+        stagedPlanTransition = null;
+        latestPlanSelection = null;
         showPage('dashboard');
         appendMsg('system', '❌ 执行失败: ' + msg.payload.error);
         toast('执行失败', 'error');
@@ -3325,7 +3482,6 @@ const App = {
         toast(msg.payload.text, msg.payload.level || 'info');
         break;
       case 'log':
-        clearPendingExecuteMessage();
         appendMsg('system', msg.payload.text);
         scrollChatToBottom(true);
         break;
