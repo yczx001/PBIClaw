@@ -431,7 +431,8 @@ internal sealed class TabularModelWriter
     private static Table FindTable(Database database, string? tableName)
     {
         var name = RequireValue(tableName, "table/fromTable/toTable");
-        return database.Model.Tables.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))
+        var normalized = NormalizeTableReference(name);
+        return database.Model.Tables.FirstOrDefault(t => NameEquals(t.Name, normalized))
                ?? throw new InvalidOperationException($"未找到表: {name}");
     }
 
@@ -442,7 +443,8 @@ internal sealed class TabularModelWriter
             return null;
         }
 
-        return database.Model.Tables.FirstOrDefault(t => string.Equals(t.Name, tableName.Trim(), StringComparison.OrdinalIgnoreCase));
+        var normalized = NormalizeTableReference(tableName);
+        return database.Model.Tables.FirstOrDefault(t => NameEquals(t.Name, normalized));
     }
 
     private static SingleColumnRelationship? FindRelationship(Database database, AbiModelAction action)
@@ -489,10 +491,48 @@ internal sealed class TabularModelWriter
 
     private static bool IsSameEndpoints(SingleColumnRelationship relationship, string fromTable, string fromColumn, string toTable, string toColumn)
     {
-        return string.Equals(relationship.FromColumn?.Table?.Name, fromTable, StringComparison.OrdinalIgnoreCase) &&
+        return NameEquals(relationship.FromColumn?.Table?.Name ?? string.Empty, fromTable) &&
                string.Equals(relationship.FromColumn?.Name, fromColumn, StringComparison.OrdinalIgnoreCase) &&
-               string.Equals(relationship.ToColumn?.Table?.Name, toTable, StringComparison.OrdinalIgnoreCase) &&
+               NameEquals(relationship.ToColumn?.Table?.Name ?? string.Empty, toTable) &&
                string.Equals(relationship.ToColumn?.Name, toColumn, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool NameEquals(string actual, string request)
+        => string.Equals(NormalizeObjectName(actual), NormalizeObjectName(request), StringComparison.OrdinalIgnoreCase);
+
+    private static string NormalizeTableReference(string? value)
+    {
+        var normalized = NormalizeObjectName(value);
+        var bracketIndex = normalized.IndexOf('[');
+        if (bracketIndex > 0 && normalized.EndsWith("]", StringComparison.Ordinal))
+        {
+            normalized = normalized[..bracketIndex].Trim();
+            normalized = NormalizeObjectName(normalized);
+        }
+        return normalized;
+    }
+
+    private static string NormalizeObjectName(string? value)
+    {
+        var name = (value ?? string.Empty).Trim();
+        while (name.Length >= 2)
+        {
+            var wrappedByQuotes =
+                (name.StartsWith("'", StringComparison.Ordinal) && name.EndsWith("'", StringComparison.Ordinal)) ||
+                (name.StartsWith("\"", StringComparison.Ordinal) && name.EndsWith("\"", StringComparison.Ordinal)) ||
+                (name.StartsWith("`", StringComparison.Ordinal) && name.EndsWith("`", StringComparison.Ordinal));
+            var wrappedByBrackets =
+                name.StartsWith("[", StringComparison.Ordinal) && name.EndsWith("]", StringComparison.Ordinal);
+
+            if (!wrappedByQuotes && !wrappedByBrackets)
+            {
+                break;
+            }
+
+            name = name[1..^1].Trim();
+        }
+
+        return name;
     }
 
     private static CrossFilteringBehavior ParseCrossFilter(string? value)

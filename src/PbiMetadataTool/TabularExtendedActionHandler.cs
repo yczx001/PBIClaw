@@ -932,7 +932,8 @@ internal static class TabularExtendedActionHandler
         {
             return null;
         }
-        return database.Model.Tables.FirstOrDefault(t => string.Equals(t.Name, tableName.Trim(), StringComparison.OrdinalIgnoreCase));
+        var requestName = NormalizeTableReference(tableName);
+        return database.Model.Tables.FirstOrDefault(t => NameEquals(t.Name, requestName));
     }
 
     private static Column FindColumn(Table table, string? name)
@@ -948,7 +949,8 @@ internal static class TabularExtendedActionHandler
         {
             return null;
         }
-        return table.Columns.FirstOrDefault(c => string.Equals(c.Name, name.Trim(), StringComparison.OrdinalIgnoreCase));
+        var requestName = NormalizeObjectName(name);
+        return table.Columns.FirstOrDefault(c => NameEquals(c.Name, requestName));
     }
 
     private static Measure FindMeasure(Table table, string? name)
@@ -964,7 +966,46 @@ internal static class TabularExtendedActionHandler
         {
             return null;
         }
-        return table.Measures.FirstOrDefault(m => string.Equals(m.Name, name.Trim(), StringComparison.OrdinalIgnoreCase));
+        var requestName = NormalizeObjectName(name);
+        return table.Measures.FirstOrDefault(m => NameEquals(m.Name, requestName));
+    }
+
+    private static bool NameEquals(string actual, string request)
+        => string.Equals(NormalizeObjectName(actual), NormalizeObjectName(request), StringComparison.OrdinalIgnoreCase);
+
+    private static string NormalizeTableReference(string? value)
+    {
+        var normalized = NormalizeObjectName(value);
+        var bracketIndex = normalized.IndexOf('[');
+        if (bracketIndex > 0 && normalized.EndsWith("]", StringComparison.Ordinal))
+        {
+            normalized = normalized[..bracketIndex].Trim();
+            normalized = NormalizeObjectName(normalized);
+        }
+        return normalized;
+    }
+
+    private static string NormalizeObjectName(string? value)
+    {
+        var name = (value ?? string.Empty).Trim();
+        while (name.Length >= 2)
+        {
+            var wrappedByQuotes =
+                (name.StartsWith("'", StringComparison.Ordinal) && name.EndsWith("'", StringComparison.Ordinal)) ||
+                (name.StartsWith("\"", StringComparison.Ordinal) && name.EndsWith("\"", StringComparison.Ordinal)) ||
+                (name.StartsWith("`", StringComparison.Ordinal) && name.EndsWith("`", StringComparison.Ordinal));
+            var wrappedByBrackets =
+                name.StartsWith("[", StringComparison.Ordinal) && name.EndsWith("]", StringComparison.Ordinal);
+
+            if (!wrappedByQuotes && !wrappedByBrackets)
+            {
+                break;
+            }
+
+            name = name[1..^1].Trim();
+        }
+
+        return name;
     }
 
     private static SingleColumnRelationship? FindRelationship(Database database, AbiModelAction action)

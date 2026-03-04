@@ -169,21 +169,25 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 #plan-empty { min-height: 170px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text3); }
 #plan-empty .empty-icon { font-size: 48px; opacity: .4; }
 #plan-content { display: flex; flex-direction: column; gap: 12px; }
-.action-item { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; transition: border-color .15s, background .15s; }
+.action-item { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; transition: border-color .15s; }
 .action-item:hover { border-color: var(--accent); }
-.action-item.state-allow { border-color: rgba(34,197,94,.42); background: rgba(34,197,94,.08); }
-.action-item.state-reject { border-color: rgba(239,68,68,.4); background: rgba(239,68,68,.08); }
-.action-item.state-pending { border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.08); }
 .action-body { flex: 1; }
 .action-type { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); margin-bottom: 3px; }
 .action-target { font-size: 13px; font-weight: 600; color: var(--text); }
 .action-reason { font-size: 12px; color: var(--text2); margin-top: 3px; }
-.action-state-group { display: inline-flex; gap: 4px; flex-shrink: 0; align-items: center; margin-top: 1px; }
-.action-state-btn { height: 24px; min-width: 44px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); font-size: 11px; font-family: var(--font); cursor: pointer; transition: all .15s; }
-.action-state-btn:hover { border-color: var(--accent); color: var(--text); }
-.action-state-btn.active.allow { border-color: rgba(34,197,94,.45); color: var(--success); background: rgba(34,197,94,.12); }
-.action-state-btn.active.reject { border-color: rgba(239,68,68,.45); color: var(--danger); background: rgba(239,68,68,.12); }
-.action-state-btn.active.pending { border-color: rgba(245,158,11,.45); color: var(--warn); background: rgba(245,158,11,.14); }
+.action-state-toggle { position: relative; width: 138px; height: 26px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface2); display: grid; grid-template-columns: repeat(3, 1fr); align-items: center; overflow: hidden; flex-shrink: 0; }
+.action-state-toggle .state-thumb { position: absolute; top: 2px; left: 2px; width: calc((100% - 4px) / 3); height: 20px; border: 1px solid var(--border); border-radius: 999px; background: rgba(34,197,94,.16); transform: translateX(calc(var(--state-index, 0) * 100%)); transition: transform .16s ease, background .16s ease, border-color .16s ease; z-index: 1; }
+.action-state-toggle[data-state="allow"] { --state-index: 0; }
+.action-state-toggle[data-state="pending"] { --state-index: 1; }
+.action-state-toggle[data-state="reject"] { --state-index: 2; }
+.action-state-toggle[data-state="allow"] .state-thumb { background: rgba(34,197,94,.18); border-color: rgba(34,197,94,.45); }
+.action-state-toggle[data-state="pending"] .state-thumb { background: rgba(100,116,139,.18); border-color: rgba(100,116,139,.45); }
+.action-state-toggle[data-state="reject"] .state-thumb { background: rgba(239,68,68,.16); border-color: rgba(239,68,68,.45); }
+.action-state-toggle .state-option { position: relative; z-index: 2; border: none; background: transparent; height: 100%; color: var(--text2); font-size: 11px; font-family: var(--font); cursor: pointer; padding: 0; }
+.action-state-toggle .state-option:hover { color: var(--text); }
+.action-state-toggle[data-state="allow"] .state-option.allow { color: var(--success); font-weight: 700; }
+.action-state-toggle[data-state="pending"] .state-option.pending { color: var(--text); font-weight: 700; }
+.action-state-toggle[data-state="reject"] .state-option.reject { color: var(--danger); font-weight: 700; }
 #plan-preview-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; font-family: var(--mono); font-size: 12px; color: var(--text2); white-space: pre-wrap; overflow-y: auto; max-height: 200px; }
 .plan-actions-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .writeback-options { display: flex; align-items: center; gap: 10px; padding: 10px 12px; width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
@@ -2179,12 +2183,23 @@ function renderMarkdownBlocks(text) {
   const out = [];
   let listType = '';
   let i = 0;
-  const olPattern = /^\d+(?:\.\s+|\)\s+|）\s+|、\s*)(.+)$/;
+  const olPattern = /^(\d+)\s*(?:[\.．]\s*|[)）]\s*|、\s*)(.+)$/;
 
   function closeList() {
     if (!listType) return;
     out.push(listType === 'ul' ? '</ul>' : '</ol>');
     listType = '';
+  }
+
+  function parseOrderedItem(lineText) {
+    const m = String(lineText || '').match(olPattern);
+    if (!m) return null;
+    const index = parseInt(m[1], 10);
+    if (!Number.isFinite(index) || index <= 0) return null;
+    return {
+      index: index,
+      text: m[2]
+    };
   }
 
   function splitTableRow(line) {
@@ -2244,7 +2259,7 @@ function renderMarkdownBlocks(text) {
           const next = String(lines[j] || '').trim();
           const continueList = listType === 'ul'
             ? /^[-*+]\s+(.+)$/.test(next)
-            : olPattern.test(next);
+            : !!parseOrderedItem(next);
           if (continueList) {
             i += 1;
             continue;
@@ -2306,14 +2321,14 @@ function renderMarkdownBlocks(text) {
       continue;
     }
 
-    const ol = trimmed.match(olPattern);
+    const ol = parseOrderedItem(trimmed);
     if (ol) {
       if (listType !== 'ol') {
         closeList();
         listType = 'ol';
-        out.push('<ol>');
+        out.push(ol.index > 1 ? ('<ol start="' + ol.index + '">') : '<ol>');
       }
-      out.push('<li>' + formatInlineMarkdown(ol[1]) + '</li>');
+      out.push('<li value="' + ol.index + '">' + formatInlineMarkdown(ol.text) + '</li>');
       i += 1;
       continue;
     }
@@ -2708,21 +2723,19 @@ function renderPlan(plan) {
   list.innerHTML = '';
   plan.actions.forEach(function(a, i) {
     const state = normalizePlanActionState(plan.actionStates[i]);
-    const allowActive = state === PLAN_ACTION_ALLOW ? ' active' : '';
-    const rejectActive = state === PLAN_ACTION_REJECT ? ' active' : '';
-    const pendingActive = state === PLAN_ACTION_PENDING ? ' active' : '';
     const item = document.createElement('div');
-    item.className = 'action-item state-' + state;
+    item.className = 'action-item';
     const target = (a.table && a.name) ? esc(a.table) + ' · ' + esc(a.name) : esc(a.table || a.fromTable || a.name || '');
     item.innerHTML = '<div class="action-body">' +
       '<div class="action-type">' + esc(a.type) + '</div>' +
       '<div class="action-target">' + target + '</div>' +
       (a.reason ? '<div class="action-reason">' + esc(a.reason) + '</div>' : '') +
       '</div>' +
-      '<div class="action-state-group" data-index="' + i + '">' +
-      '<button class="action-state-btn allow' + allowActive + '" data-state="' + PLAN_ACTION_ALLOW + '">允许</button>' +
-      '<button class="action-state-btn reject' + rejectActive + '" data-state="' + PLAN_ACTION_REJECT + '">拒绝</button>' +
-      '<button class="action-state-btn pending' + pendingActive + '" data-state="' + PLAN_ACTION_PENDING + '">待定</button>' +
+      '<div class="action-state-toggle" data-index="' + i + '" data-state="' + state + '">' +
+      '<div class="state-thumb"></div>' +
+      '<button class="state-option allow" data-state="' + PLAN_ACTION_ALLOW + '">允许</button>' +
+      '<button class="state-option pending" data-state="' + PLAN_ACTION_PENDING + '">待定</button>' +
+      '<button class="state-option reject" data-state="' + PLAN_ACTION_REJECT + '">拒绝</button>' +
       '</div>';
     list.appendChild(item);
   });
@@ -2858,13 +2871,20 @@ document.getElementById('btn-uncheck-all').addEventListener('click', function() 
   setAllPlanActionStates(PLAN_ACTION_PENDING);
 });
 document.getElementById('action-list').addEventListener('click', function(e) {
-  const btn = e.target.closest('.action-state-btn');
-  if (!btn) return;
-  const group = btn.closest('.action-state-group');
+  const group = e.target.closest('.action-state-toggle');
   if (!group) return;
   const index = parseInt(group.dataset.index || '-1', 10);
   if (index < 0) return;
-  setPlanActionState(index, btn.dataset.state || PLAN_ACTION_ALLOW);
+  const btn = e.target.closest('.state-option');
+  if (btn) {
+    setPlanActionState(index, btn.dataset.state || PLAN_ACTION_ALLOW);
+    return;
+  }
+  const current = normalizePlanActionState(group.dataset.state);
+  const next = current === PLAN_ACTION_ALLOW
+    ? PLAN_ACTION_PENDING
+    : (current === PLAN_ACTION_PENDING ? PLAN_ACTION_REJECT : PLAN_ACTION_ALLOW);
+  setPlanActionState(index, next);
 });
 document.getElementById('btn-discard-plan').addEventListener('click', function() {
   const total = State.pendingPlan && Array.isArray(State.pendingPlan.actions)

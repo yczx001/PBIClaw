@@ -44,7 +44,7 @@ internal static class MetadataPromptBuilder
 支持的 type：
 - create_or_update_measure / delete_measure
 - create_relationship / delete_relationship
-- delete_table
+- delete_table（可删除模型中的任意表，包括 Import/PowerQuery/Calculated）
 - rename_table / rename_column / rename_measure
 - set_table_hidden / set_column_hidden / set_measure_hidden
 - set_format_string / set_display_folder
@@ -67,6 +67,7 @@ internal static class MetadataPromptBuilder
 - 角色相关：`name` 为角色名，成员使用 `memberName`，表权限可用 `expression`(RLS筛选) 与 `metadataPermission`
 
 关系定位可用 name，或用 fromTable/fromColumn/toTable/toColumn。
+删除表时，不要因为来源类型是 PowerQuery 就拒绝；只要该表在模型中存在，即可使用 delete_table。
 如果用户没有明确要求变更，不要输出 abi_action_plan。
 如果用户要求变更但信息不完整（如未指定表名），先询问缺失信息，不要猜测输出。
 """;
