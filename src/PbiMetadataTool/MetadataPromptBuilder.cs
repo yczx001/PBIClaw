@@ -65,6 +65,8 @@ internal static class MetadataPromptBuilder
 - set_relationship_active 使用 `isActive`
 - set_relationship_cross_filter 使用 `crossFilterDirection`
 - 角色相关：`name` 为角色名，成员使用 `memberName`，表权限可用 `expression`(RLS筛选) 与 `metadataPermission`
+- `create_calculated_table` 必须同时提供 `name` 和完整 `expression`（DAX），禁止留空或只写占位文字。
+- 当用户要求“创建日期表/日历表”时，你必须自行生成可执行的日期表 DAX（例如基于 CALENDARAUTO），不要反问用户提供表达式。
 
 关系定位可用 name，或用 fromTable/fromColumn/toTable/toColumn。
 删除表时，不要因为来源类型是 PowerQuery 就拒绝；只要该表在模型中存在，即可使用 delete_table。

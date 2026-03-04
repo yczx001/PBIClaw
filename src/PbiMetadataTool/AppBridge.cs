@@ -317,6 +317,8 @@ internal sealed class AppBridge
 
             if (runtimeSettings.AllowModelChanges && AbiActionPlanParser.TryExtract(reply, out var plan, out var preview, out _))
             {
+                plan = NormalizeActionPlan(plan);
+                preview = AbiActionPlanPreview.BuildText(plan);
                 _pendingPlan = plan;
                 _preflightSourcePlan = null;
                 _preflightPendingIndices = [];
@@ -502,6 +504,7 @@ internal sealed class AppBridge
             Send("status", new { text = "没有待执行的计划", level = "warn" });
             return;
         }
+        _pendingPlan = NormalizeActionPlan(_pendingPlan);
 
         var indices = p["selectedIndices"]?.AsArray()
             .Select(n => n?.GetValue<int>() ?? -1)
@@ -976,6 +979,79 @@ internal sealed class AppBridge
         }
 
         return string.Empty;
+    }
+
+    private static AbiActionPlan NormalizeActionPlan(AbiActionPlan plan)
+    {
+        if (plan.Actions.Count == 0)
+        {
+            return plan;
+        }
+
+        var normalized = plan.Actions.Select(NormalizeAction).ToList();
+        return new AbiActionPlan(plan.Summary, normalized);
+    }
+
+    private static AbiModelAction NormalizeAction(AbiModelAction action)
+    {
+        var type = (action.Type ?? string.Empty).Trim().ToLowerInvariant();
+        if (!string.Equals(type, "create_calculated_table", StringComparison.Ordinal))
+        {
+            return action;
+        }
+
+        var name = FirstNonEmpty(action.Name, action.Table);
+        var expression = action.Expression;
+        if (string.IsNullOrWhiteSpace(expression) &&
+            IsDateTableIntent(name, action.Reason, action.Table))
+        {
+            expression = """
+ADDCOLUMNS(
+    CALENDARAUTO(12),
+    "年份", YEAR([Date]),
+    "月份序号", MONTH([Date]),
+    "月份", FORMAT([Date], "YYYY-MM"),
+    "季度", "Q" & FORMAT([Date], "Q"),
+    "年季", FORMAT([Date], "YYYY") & "-Q" & FORMAT([Date], "Q"),
+    "周数", WEEKNUM([Date], 2),
+    "星期", FORMAT([Date], "ddd")
+)
+""";
+        }
+
+        return action with
+        {
+            Name = string.IsNullOrWhiteSpace(name) ? action.Name : name,
+            Expression = string.IsNullOrWhiteSpace(expression) ? action.Expression : expression
+        };
+    }
+
+    private static bool IsDateTableIntent(params string?[] values)
+    {
+        var text = string.Join(" ", values.Where(v => !string.IsNullOrWhiteSpace(v))).ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        return text.Contains("日期", StringComparison.Ordinal) ||
+               text.Contains("日历", StringComparison.Ordinal) ||
+               text.Contains("calendar", StringComparison.Ordinal) ||
+               text.Contains("date table", StringComparison.Ordinal) ||
+               text.Contains("date_table", StringComparison.Ordinal);
+    }
+
+    private static string? FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return null;
     }
 
     private sealed record BackupEntry(

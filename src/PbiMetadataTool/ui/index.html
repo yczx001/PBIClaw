@@ -538,7 +538,6 @@ select.setting-input { cursor: pointer; }
           <div class="topbar-spacer"></div>
           <div class="plan-actions-row">
             <button class="topbar-btn" id="btn-check-all">全部允许</button>
-            <button class="topbar-btn" id="btn-uncheck-all">全部待定</button>
             <button class="topbar-btn" id="btn-discard-plan">丢弃</button>
             <button class="topbar-btn primary" id="btn-execute">预检并执行</button>
           </div>
@@ -2867,9 +2866,6 @@ function executePlanDecision(decision, autoExecute) {
 document.getElementById('btn-check-all').addEventListener('click', function() {
   setAllPlanActionStates(PLAN_ACTION_ALLOW);
 });
-document.getElementById('btn-uncheck-all').addEventListener('click', function() {
-  setAllPlanActionStates(PLAN_ACTION_PENDING);
-});
 document.getElementById('action-list').addEventListener('click', function(e) {
   const group = e.target.closest('.action-state-toggle');
   if (!group) return;
@@ -2887,6 +2883,9 @@ document.getElementById('action-list').addEventListener('click', function(e) {
   setPlanActionState(index, next);
 });
 document.getElementById('btn-discard-plan').addEventListener('click', function() {
+  if (!window.confirm('确认丢弃当前待执行计划吗？该操作不可撤销。')) {
+    return;
+  }
   const total = State.pendingPlan && Array.isArray(State.pendingPlan.actions)
     ? State.pendingPlan.actions.length
     : (latestPlanNotice ? latestPlanNotice.total : 0);
