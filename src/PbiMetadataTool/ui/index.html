@@ -99,6 +99,9 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 /* ── Cards ── */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 .card-header { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .6px; display: flex; align-items: center; gap: 8px; }
+#model-db-row { display: none; padding: 9px 8px; border-bottom: 1px solid var(--border); }
+.model-db-select { display: block; width: 100%; height: 36px; min-height: 36px; padding: 0 10px; border-radius: 6px; font-family: var(--font); font-size: 11.5px; font-weight: 700; letter-spacing: .45px; line-height: 1.3; }
+.model-db-select option { font-family: var(--font); font-size: 11.5px; font-weight: 700; letter-spacing: .45px; }
 .card-body { padding: 12px; }
 
 /* ── Dashboard Page ── */
@@ -275,12 +278,12 @@ input.setting-input[type='number']::-webkit-inner-spin-button { -webkit-appearan
 .setting-credit { margin-top: 4px; font-size: 11px; color: var(--text3); }
 .setting-credit a { color: inherit; text-decoration: none; }
 .setting-credit a:hover { color: var(--accent); }
-.about-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.about-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-height: 320px; }
 .about-title { font-size: 13px; font-weight: 700; color: var(--text); }
 .about-text { font-size: 12px; color: var(--text2); line-height: 1.65; }
 .about-text a { color: var(--accent); text-decoration: none; }
 .about-text a:hover { text-decoration: underline; }
-.about-ai-note { font-size: 12.5px; color: var(--text); font-family: 'Segoe UI Variable', 'Microsoft YaHei UI', sans-serif; font-weight: 600; letter-spacing: .35px; }
+.about-ai-note { font-size: 14px; color: var(--text); font-family: 'Segoe UI Variable', 'Microsoft YaHei UI', sans-serif; font-weight: 600; letter-spacing: .35px; margin-top: auto; text-align: center; }
 .about-top-row { display: flex; align-items: center; justify-content: flex-start; gap: 6px; flex-wrap: wrap; }
 .about-version { font-size: 15px; font-weight: 700; color: var(--text); }
 .about-update-actions { display: flex; align-items: center; gap: 6px; margin-left: 16px; }
@@ -370,7 +373,7 @@ select.setting-input { cursor: pointer; }
 .model-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 .model-tab:hover:not(.active) { color: var(--text); background: var(--surface2); }
 #model-search-wrap { padding: 8px 8px 6px; border-bottom: 1px solid var(--border); }
-#model-search { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; color: var(--text); font-size: 12px; outline: none; }
+#model-search { width: 100%; height: 40px; min-height: 40px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 0 11px 1px; color: var(--text); font-family: var(--font); font-size: 11.5px; line-height: 1.3; outline: none; appearance: none; }
 #model-search:focus { border-color: var(--accent); }
 #model-search::placeholder { color: var(--text3); }
 
@@ -482,6 +485,9 @@ select.setting-input { cursor: pointer; }
         <div class="card-header" style="border-bottom:1px solid var(--border)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           模型浏览器
+        </div>
+        <div id="model-db-row">
+          <select id="model-db-select" class="setting-input model-db-select" aria-label="选择数据库"></select>
         </div>
         <div id="model-tabs">
           <div class="model-tab active" data-tab="tables">表</div>
@@ -744,7 +750,7 @@ select.setting-input { cursor: pointer; }
                 <div class="about-text">核心能力：外部工具启动自动连接当前模型、表/关系/度量值/角色多页签浏览、报表页与视觉对象上下文、变更历史、更新检测与一键升级。</div>
                 <div class="about-text">网址：<a href="https://pbihub.cn/" target="_blank" rel="noopener noreferrer">https://pbihub.cn/</a></div>
                 <div class="about-text">作者：施阳</div>
-                <div class="about-ai-note">本项目完全由AI实现</div>
+                <div class="about-ai-note">本项目 AI 含量 100%，绝不含一行手写代码</div>
               </div>
             </div>
           </div>
@@ -926,6 +932,8 @@ window.chrome.webview.addEventListener('message', e => {
 // State
 const State = {
   connected: false, dbName: '', allowChanges: false, aiModel: '', aiProvider: 'openai',
+  activeConnectionMode: '', tabularServer: '', tabularDatabases: [],
+  dbPickerReason: '', pendingTabularAllowWrite: null,
   instances: [], pendingPlan: null, backups: [], settings: {}, planHistory: [],
   selectedBackupPath: null, connectMode: 'pbi',
   instanceScanInProgress: false, instanceScanToastPending: false,
@@ -1345,7 +1353,41 @@ function updateChips() {
   } else {
     modelChip.style.display = 'none';
   }
+  updateDbSwitchButton();
   updateSendButtonState();
+}
+
+function updateDbSwitchButton() {
+  const row = document.getElementById('model-db-row');
+  const select = document.getElementById('model-db-select');
+  if (!row || !select) return;
+  const visible = (State.connected && State.activeConnectionMode === 'tabular') || State.dbPickerReason === 'connect';
+  if (!visible) {
+    row.style.display = 'none';
+    select.innerHTML = '';
+    return;
+  }
+  row.style.display = 'block';
+  select.style.display = 'block';
+  select.disabled = false;
+
+  // Ensure current model name is visible in selector.
+  if (State.connected && State.activeConnectionMode === 'tabular') {
+    const currentDb = String(State.dbName || '').trim();
+    if (currentDb) {
+      const hasCurrent = Array.from(select.options || []).some(function(opt) {
+        return String(opt.value || '').trim().toLowerCase() === currentDb.toLowerCase();
+      });
+      if (!hasCurrent && Array.isArray(State.tabularDatabases) && State.tabularDatabases.length) {
+        renderModelDbOptions(State.tabularDatabases, false, currentDb);
+      } else if (!hasCurrent && (!Array.isArray(State.tabularDatabases) || State.tabularDatabases.length === 0)) {
+        // Keep selector visible with current database even when full list cannot be loaded.
+        renderModelDbOptions([{ name: currentDb, id: currentDb }], false, currentDb);
+      } else if (hasCurrent) {
+        select.value = currentDb;
+      }
+    }
+  }
 }
 
 function updateSendButtonState() {
@@ -1489,8 +1531,6 @@ function renderTree(model) {
   const tables = modelData.tables || [];
   const relationships = modelData.relationships || [];
   let html = '';
-  const modelTitle = modelData.databaseDisplayName || displayModelName(modelData.databaseName);
-  html += '<div class="tree-node" style="font-weight:700"><span class="tree-icon">▣</span><span class="tree-label">' + esc(modelTitle) + '</span></div>';
   if (term) {
     html += '<div class="tree-group" style="text-transform:none;letter-spacing:0">搜索："' + esc(State.modelSearch) + '"</div>';
   }
@@ -2584,6 +2624,17 @@ document.getElementById('conn-cancel').addEventListener('click', function() {
   document.getElementById('connect-overlay').classList.remove('show');
 });
 document.getElementById('conn-ok').addEventListener('click', doConnect);
+document.getElementById('model-db-select').addEventListener('mousedown', function() {
+  if (State.connected && State.activeConnectionMode === 'tabular') {
+    bridge.send('requestTabularDatabases', { reason: 'switch', server: State.tabularServer || '' });
+  }
+});
+document.getElementById('model-db-select').addEventListener('focus', function() {
+  if (State.connected && State.activeConnectionMode === 'tabular') {
+    bridge.send('requestTabularDatabases', { reason: 'switch', server: State.tabularServer || '' });
+  }
+});
+document.getElementById('model-db-select').addEventListener('change', submitModelDbSelection);
 
 function setConnectModeUI(mode) {
   const next = mode === 'tabular' ? 'tabular' : 'pbi';
@@ -2650,6 +2701,92 @@ function doConnect() {
     bridge.send('connect', { mode: 'tabular', server: server, allowWrite: allowWrite });
   }
   document.getElementById('connect-overlay').classList.remove('show');
+}
+
+function renderModelDbOptions(list, includePlaceholder, selectedName) {
+  const select = document.getElementById('model-db-select');
+  if (!select) return;
+  const opts = [];
+  if (includePlaceholder) {
+    opts.push('<option value="">请选择数据库...</option>');
+  }
+  opts.push((list || []).map(function(db) {
+    const name = String(db && db.name || db && db.id || '').trim();
+    return '<option value="' + esc(name) + '">' + esc(displayModelName(name) || name || '(未命名数据库)') + '</option>';
+  }).join(''));
+  select.innerHTML = opts.join('');
+  if (includePlaceholder) {
+    select.value = '';
+    return;
+  }
+
+  const target = String(selectedName || '').trim();
+  if (!target) return;
+  select.value = target;
+}
+
+function openModelDbSelector(payload) {
+  const list = Array.isArray(payload && payload.databases) ? payload.databases : [];
+  const server = String(payload && payload.server || '').trim();
+  if (!server) {
+    toast('未返回服务器地址，无法选择数据库', 'error');
+    return;
+  }
+  if (!list.length) {
+    toast('当前服务器没有可用数据库', 'warn');
+    return;
+  }
+
+  State.tabularServer = server;
+  State.tabularDatabases = list;
+  State.dbPickerReason = String(payload && payload.reason || 'switch').trim() || 'switch';
+  State.pendingTabularAllowWrite = (payload && typeof payload.allowWrite === 'boolean')
+    ? payload.allowWrite
+    : null;
+
+  const select = document.getElementById('model-db-select');
+  if (!select) return;
+
+  const includePlaceholder = State.dbPickerReason === 'connect';
+  renderModelDbOptions(
+    list,
+    includePlaceholder,
+    State.dbPickerReason === 'connect' ? '' : State.dbName);
+
+  if (State.dbPickerReason === 'connect') {
+    showPage('dashboard');
+    updateDbSwitchButton();
+    select.focus();
+  } else {
+    updateDbSwitchButton();
+  }
+
+  if (State.dbPickerReason === 'connect') {
+    toast('请选择要连接的数据库', 'info');
+  }
+}
+
+function submitModelDbSelection() {
+  const select = document.getElementById('model-db-select');
+  if (!select) return;
+
+  const dbName = String(select.value || '').trim();
+  if (!dbName) {
+    return;
+  }
+
+  const payload = {
+    server: State.tabularServer,
+    database: dbName
+  };
+
+  if (State.dbPickerReason === 'connect' && typeof State.pendingTabularAllowWrite === 'boolean') {
+    payload.allowWrite = State.pendingTabularAllowWrite;
+  }
+
+  bridge.send('connectTabularDatabase', payload);
+  State.dbPickerReason = '';
+  State.pendingTabularAllowWrite = null;
 }
 
 function updateInstances(list) {
@@ -3378,6 +3515,19 @@ const App = {
         State.connected = true;
         State.dbName = msg.payload.dbName;
         State.allowChanges = msg.payload.allowChanges;
+        const mode = (msg.payload && msg.payload.connectionMode) === 'tabular' ? 'tabular' : 'pbi';
+        State.activeConnectionMode = mode;
+        if (mode === 'tabular') {
+          State.tabularServer = String(msg.payload.tabularServer || State.tabularServer || '').trim();
+          if (Array.isArray(msg.payload.tabularDatabases)) {
+            State.tabularDatabases = msg.payload.tabularDatabases;
+          }
+        } else {
+          State.tabularServer = '';
+          State.tabularDatabases = [];
+        }
+        State.dbPickerReason = '';
+        State.pendingTabularAllowWrite = null;
         if (!silent) {
           State.expandedTables = {};
           State.expandedRoles = {};
@@ -3393,6 +3543,11 @@ const App = {
       case 'disconnected':
         State.connected = false;
         State.dbName = '';
+        State.activeConnectionMode = '';
+        State.tabularServer = '';
+        State.tabularDatabases = [];
+        State.dbPickerReason = '';
+        State.pendingTabularAllowWrite = null;
         State.expandedTables = {};
         State.expandedRoles = {};
         updateChips();
@@ -3413,6 +3568,9 @@ const App = {
           }
         }
         }
+        break;
+      case 'tabularDatabases':
+        openModelDbSelector(msg.payload || {});
         break;
       case 'chatStart':
         handleChatStart(msg.payload || {});

@@ -5,6 +5,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <ApplicationIcon>app.ico</ApplicationIcon>
     <AssemblyName>PBIClawSetup</AssemblyName>
     <RootNamespace>PBIClawSetup</RootNamespace>
   </PropertyGroup>

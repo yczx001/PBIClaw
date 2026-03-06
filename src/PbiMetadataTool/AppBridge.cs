@@ -42,6 +42,7 @@ internal sealed class AppBridge
     private ModelMetadata? _model;
     private int? _currentPort;
     private string _lastTabularServer = string.Empty;
+    private IReadOnlyList<TabularDatabaseInfo> _tabularDatabases = Array.Empty<TabularDatabaseInfo>();
     private AbiActionPlan? _pendingPlan;
     private AbiActionPlan? _preflightPlan; // plan waiting for user confirmation
     private AbiActionPlan? _preflightSourcePlan;
@@ -85,6 +86,8 @@ internal sealed class AppBridge
                 case "ready":       OnReady(); break;
                 case "scan":        OnScan(); break;
                 case "connect":     OnConnect(payload); break;
+                case "requestTabularDatabases": OnRequestTabularDatabases(payload); break;
+                case "connectTabularDatabase": OnConnectTabularDatabase(payload); break;
                 case "windowControl": OnWindowControl(payload); break;
                 case "chat":        _ = OnChatAsync(payload); break;
                 case "cancelChat":  OnCancelChat(); break;
@@ -154,25 +157,39 @@ internal sealed class AppBridge
                     Send("status", new { text = "请输入服务器地址", level = "warn" });
                     return;
                 }
-                _lastTabularServer = server;
-                ConnectTabularServer(server);
-            }
-            else
-            {
-                var portStr = p["port"]?.GetValue<string>() ?? string.Empty;
-                if (!int.TryParse(portStr, out var port))
+
+                var normalizedServer = server.Trim();
+                try
                 {
-                    Send("status", new { text = "端口无效", level = "warn" });
+                    SendTabularDatabaseList(
+                        normalizedServer,
+                        reason: "connect",
+                        currentDatabaseName: _model?.DatabaseName,
+                        requestedAllowWrite: allowWrite);
+                    Send("status", new { text = "服务器连接成功，请选择数据库。", level = "info" });
                     return;
                 }
-                ConnectPbiPort(port, null, sendReportWarning: true);
+                catch
+                {
+                    // Fallback for servers where full database enumeration may fail.
+                    ConnectTabularServer(normalizedServer, null);
+                    TryApplyAllowWriteSetting(allowWrite);
+                    SendConnectedModel();
+                    OnRefreshBackups();
+                    Send("status", new { text = "未能读取数据库列表，已连接默认数据库。", level = "warn" });
+                    return;
+                }
             }
 
-            if (allowWrite != _settings.AllowModelChanges)
+            var portStr = p["port"]?.GetValue<string>() ?? string.Empty;
+            if (!int.TryParse(portStr, out var port))
             {
-                _settings.AllowModelChanges = allowWrite;
-                _settingsStore.Save(_settings);
+                Send("status", new { text = "端口无效", level = "warn" });
+                return;
             }
+            ConnectPbiPort(port, null, sendReportWarning: true);
+
+            TryApplyAllowWriteSetting(allowWrite);
 
             SendConnectedModel();
             OnRefreshBackups();
@@ -180,6 +197,65 @@ internal sealed class AppBridge
         catch (Exception ex)
         {
             Send("status", new { text = $"连接失败: {ex.Message}", level = "error" });
+        }
+    }
+
+    private void OnRequestTabularDatabases(JsonObject p)
+    {
+        try
+        {
+            var server = p["server"]?.GetValue<string>() ?? _lastTabularServer;
+            if (string.IsNullOrWhiteSpace(server))
+            {
+                Send("status", new { text = "未找到 Tabular 服务器地址，请先连接。", level = "warn" });
+                return;
+            }
+
+            var reason = p["reason"]?.GetValue<string>() ?? "switch";
+            SendTabularDatabaseList(
+                server.Trim(),
+                reason,
+                currentDatabaseName: _model?.DatabaseName,
+                requestedAllowWrite: ParseOptionalAllowWrite(p));
+        }
+        catch (Exception ex)
+        {
+            Send("status", new { text = $"读取数据库列表失败: {ex.Message}", level = "error" });
+        }
+    }
+
+    private void OnConnectTabularDatabase(JsonObject p)
+    {
+        try
+        {
+            var server = p["server"]?.GetValue<string>() ?? _lastTabularServer;
+            var database = p["database"]?.GetValue<string>() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(server))
+            {
+                Send("status", new { text = "服务器地址为空，请重新选择。", level = "warn" });
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(database))
+            {
+                Send("status", new { text = "请选择数据库。", level = "warn" });
+                return;
+            }
+
+            ConnectTabularServer(server.Trim(), database.Trim());
+            var allowWrite = ParseOptionalAllowWrite(p);
+            if (allowWrite.HasValue)
+            {
+                TryApplyAllowWriteSetting(allowWrite.Value);
+            }
+
+            SendConnectedModel();
+            OnRefreshBackups();
+            Send("status", new { text = $"已连接到 Tabular 数据库: {_connectedModelDisplayName}", level = "success" });
+        }
+        catch (Exception ex)
+        {
+            Send("status", new { text = $"连接数据库失败: {ex.Message}", level = "error" });
         }
     }
 
@@ -617,13 +693,7 @@ internal sealed class AppBridge
             // Refresh model
             _model = _reader.ReadMetadata(_currentPort.Value, _model.DatabaseName);
             _report = ResolveReportMetadataForPort(_currentPort.Value).Report;
-            Send("connected", new
-            {
-                dbName = string.IsNullOrWhiteSpace(_connectedModelDisplayName) ? _model.DatabaseName : _connectedModelDisplayName,
-                allowChanges = _settings.AllowModelChanges,
-                model = ModelDto(_model, _connectedModelDisplayName, _report),
-                silent = true
-            });
+            Send("connected", BuildConnectedPayload(silent: true));
 
             Send("executeSuccess", new
             {
@@ -1315,6 +1385,65 @@ ADDCOLUMNS(
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    private object BuildConnectedPayload(bool silent)
+    {
+        if (_model is null)
+        {
+            return new
+            {
+                dbName = string.Empty,
+                allowChanges = _settings.AllowModelChanges,
+                model = (object?)null,
+                silent,
+                connectionMode = "pbi",
+                tabularServer = string.Empty,
+                tabularDatabases = Array.Empty<object>()
+            };
+        }
+
+        var isTabular = !_currentPort.HasValue;
+        return new
+        {
+            dbName = _connectedModelDisplayName,
+            allowChanges = _settings.AllowModelChanges,
+            model = ModelDto(_model, _connectedModelDisplayName, _report),
+            silent,
+            connectionMode = isTabular ? "tabular" : "pbi",
+            tabularServer = isTabular ? _lastTabularServer : string.Empty,
+            tabularDatabases = isTabular
+                ? _tabularDatabases.Select(TabularDatabaseDto).ToArray()
+                : Array.Empty<object>()
+        };
+    }
+
+    private void TryApplyAllowWriteSetting(bool allowWrite)
+    {
+        if (allowWrite == _settings.AllowModelChanges)
+        {
+            return;
+        }
+
+        _settings.AllowModelChanges = allowWrite;
+        _settingsStore.Save(_settings);
+    }
+
+    private static bool? ParseOptionalAllowWrite(JsonObject payload)
+    {
+        if (payload["allowWrite"] is not JsonValue value)
+        {
+            return null;
+        }
+
+        try
+        {
+            return value.GetValue<bool>();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private void TryAutoConnectFromExternalTool(IReadOnlyList<PowerBiInstanceInfo>? instances = null)
     {
         if (_externalToolAutoConnectAttempted || _model is not null || !_startupOptions.ExternalToolMode)
@@ -1367,7 +1496,7 @@ ADDCOLUMNS(
         {
             try
             {
-                ConnectTabularServer(normalizedServer);
+                ConnectTabularServer(normalizedServer, databaseName);
                 SendConnectedModel();
                 Send("status", new { text = "已根据外部工具参数自动连接模型。", level = "success" });
                 OnRefreshBackups();
@@ -1389,6 +1518,7 @@ ADDCOLUMNS(
     {
         _model = _reader.ReadMetadata(port, databaseName);
         _currentPort = port;
+        _tabularDatabases = Array.Empty<TabularDatabaseInfo>();
         _connectedModelDisplayName = ResolvePbiDisplayName(port, _model.DatabaseName);
         _currentBackupModelKey = SafeName(_connectedModelDisplayName);
         if (!loadReportMetadata)
@@ -1405,15 +1535,41 @@ ADDCOLUMNS(
         }
     }
 
-    private void ConnectTabularServer(string server)
+    private void ConnectTabularServer(string server, string? databaseName = null)
     {
         _lastTabularServer = server;
         var connStr = $"DataSource={server};";
-        _model = _reader.ReadMetadata(connStr, null);
+        _model = _reader.ReadMetadata(connStr, databaseName);
         _currentPort = null;
         _connectedModelDisplayName = _model.DatabaseName;
         _currentBackupModelKey = SafeName(_connectedModelDisplayName);
         _report = null;
+    }
+
+    private void SendTabularDatabaseList(
+        string server,
+        string reason,
+        string? currentDatabaseName,
+        bool? requestedAllowWrite)
+    {
+        var connStr = $"DataSource={server};";
+        var databases = _reader.ListDatabases(connStr);
+        if (databases.Count == 0)
+        {
+            throw new InvalidOperationException("未找到可用数据库。");
+        }
+
+        _lastTabularServer = server;
+        _tabularDatabases = databases;
+
+        Send("tabularDatabases", new
+        {
+            server,
+            reason,
+            currentDatabase = currentDatabaseName,
+            allowWrite = requestedAllowWrite,
+            databases = databases.Select(TabularDatabaseDto).ToArray()
+        });
     }
 
     private string BuildOnDemandDeepContext(string prompt, bool includeHiddenObjects)
@@ -1543,13 +1699,7 @@ ADDCOLUMNS(
         }
 
         _conversation.Clear();
-        Send("connected", new
-        {
-            dbName = _connectedModelDisplayName,
-            allowChanges = _settings.AllowModelChanges,
-            model = ModelDto(_model, _connectedModelDisplayName, _report),
-            silent = false
-        });
+        Send("connected", BuildConnectedPayload(silent: false));
 
         if (_report is not null)
         {
@@ -1573,13 +1723,7 @@ ADDCOLUMNS(
             _report = resolve.Report;
             if (_report is not null)
             {
-                Send("connected", new
-                {
-                    dbName = _connectedModelDisplayName,
-                    allowChanges = _settings.AllowModelChanges,
-                    model = ModelDto(_model, _connectedModelDisplayName, _report),
-                    silent = true
-                });
+                Send("connected", BuildConnectedPayload(silent: true));
                 return;
             }
 
@@ -2059,6 +2203,13 @@ ADDCOLUMNS(
                 ? $"Power BI Desktop (PID {i.DesktopPid})"
                 : "Power BI Desktop 缓存工作区")
             : Path.GetFileNameWithoutExtension(i.PbixPathHint)
+    };
+
+    private static object TabularDatabaseDto(TabularDatabaseInfo db) => new
+    {
+        name = db.Name,
+        id = db.Id,
+        compatibilityLevel = db.CompatibilityLevel
     };
 
     private static object ModelDto(ModelMetadata m, string? databaseDisplayName = null, ReportMetadata? report = null) => new

@@ -4,6 +4,70 @@ namespace PbiMetadataTool;
 
 internal sealed class TabularMetadataReader
 {
+    public IReadOnlyList<TabularDatabaseInfo> ListDatabases(string connectionString)
+    {
+        var server = new Server();
+        server.Connect(connectionString);
+
+        try
+        {
+            var result = new List<TabularDatabaseInfo>();
+            foreach (var db in server.Databases.OfType<Database>())
+            {
+                try
+                {
+                    var name = db.Name?.Trim() ?? string.Empty;
+                    var id = db.ID?.Trim() ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(id))
+                    {
+                        continue;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(name))
+                    {
+                        name = id;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(id))
+                    {
+                        id = name;
+                    }
+
+                    var compatibilityLevel = 0;
+                    try
+                    {
+                        compatibilityLevel = db.CompatibilityLevel;
+                    }
+                    catch
+                    {
+                        // Ignore per-database compatibility read failures.
+                    }
+
+                    result.Add(new TabularDatabaseInfo(
+                        Name: name,
+                        Id: id,
+                        CompatibilityLevel: compatibilityLevel));
+                }
+                catch
+                {
+                    // Ignore unreadable databases to avoid blocking the whole connection.
+                }
+            }
+
+            return result
+                .DistinctBy(db => db.Name, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(db => db.Name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        finally
+        {
+            if (server.Connected)
+            {
+                server.Disconnect();
+            }
+        }
+    }
+
     public ModelMetadata ReadMetadata(int port, string? databaseName)
         => ReadMetadata($"DataSource=localhost:{port};", databaseName);
 
@@ -345,3 +409,8 @@ internal sealed class TabularMetadataReader
             GetStringProperty(dataSource, "ID"));
     }
 }
+
+internal sealed record TabularDatabaseInfo(
+    string Name,
+    string Id,
+    int CompatibilityLevel);

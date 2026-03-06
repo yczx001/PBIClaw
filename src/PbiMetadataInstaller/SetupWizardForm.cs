@@ -26,9 +26,12 @@ internal sealed class SetupWizardForm : Form
     private SetupStep _step = SetupStep.Welcome;
     private string _installDir;
     private InstallResult? _result;
+    private ShortcutResult? _shortcutResult;
     private bool _autoInstallStarted;
     private bool _installInProgress;
     private bool _lastInstallFailed;
+    private bool _createDesktopShortcut = true;
+    private bool _createStartMenuShortcut = true;
 
     public int ExitCode { get; private set; } = 1;
 
@@ -138,6 +141,24 @@ internal sealed class SetupWizardForm : Form
                         SendState();
                     }
                     break;
+                case "setShortcutOptions":
+                    if (payload.ValueKind == JsonValueKind.Object)
+                    {
+                        if (payload.TryGetProperty("createDesktopShortcut", out var desktopNode) &&
+                            desktopNode.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                        {
+                            _createDesktopShortcut = desktopNode.GetBoolean();
+                        }
+
+                        if (payload.TryGetProperty("createStartMenuShortcut", out var startMenuNode) &&
+                            startMenuNode.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                        {
+                            _createStartMenuShortcut = startMenuNode.GetBoolean();
+                        }
+
+                        SendState();
+                    }
+                    break;
                 case "finish":
                     ExitCode = _step == SetupStep.Complete ? 0 : 1;
                     Close();
@@ -207,8 +228,7 @@ internal sealed class SetupWizardForm : Form
                 await StartInstallAsync();
                 break;
             case SetupStep.Complete:
-                ExitCode = _result is null ? 1 : 0;
-                Close();
+                await CompleteAndExitAsync();
                 break;
         }
     }
@@ -282,6 +302,7 @@ internal sealed class SetupWizardForm : Form
         _installInProgress = true;
         _lastInstallFailed = false;
         _result = null;
+        _shortcutResult = null;
         _step = SetupStep.Installing;
         SendState();
 
@@ -303,6 +324,32 @@ internal sealed class SetupWizardForm : Form
         finally
         {
             _installInProgress = false;
+        }
+    }
+
+    private async Task CompleteAndExitAsync()
+    {
+        if (_result is null)
+        {
+            ExitCode = 1;
+            Close();
+            return;
+        }
+
+        try
+        {
+            _shortcutResult = await Task.Run(() =>
+                InstallerEngine.ApplyShortcuts(
+                    _result.InstallDir,
+                    _createDesktopShortcut,
+                    _createStartMenuShortcut));
+            ExitCode = 0;
+            Close();
+        }
+        catch (Exception ex)
+        {
+            SendError($"创建快捷方式失败：{ex.Message}");
+            SendState();
         }
     }
 
@@ -346,10 +393,14 @@ internal sealed class SetupWizardForm : Form
                 _ => "下一步"
             },
             canNext = _step != SetupStep.Installing,
+            createDesktopShortcut = _createDesktopShortcut,
+            createStartMenuShortcut = _createStartMenuShortcut,
             result = _step == SetupStep.Complete && _result is not null ? new
             {
                 installDir = _result.InstallDir,
-                externalToolDirs = _result.ExternalToolDirs
+                externalToolDirs = _result.ExternalToolDirs,
+                desktopShortcutPath = _shortcutResult?.DesktopShortcutPath,
+                startMenuShortcutPath = _shortcutResult?.StartMenuShortcutPath
             } : null
         });
     }
@@ -426,6 +477,9 @@ li{margin:4px 0;color:var(--text2)}
 #toast{position:fixed;top:14px;right:14px;max-width:360px;padding:10px 14px;border-radius:8px;border:1px solid rgba(239,68,68,.4);background:rgba(239,68,68,.12);color:#ffb5b5;display:none}
 #result{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;max-height:220px;overflow:auto}
 #result div{font-size:12.5px;color:var(--text2);margin:5px 0;word-break:break-all}
+.shortcut-options{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.shortcut-check{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text)}
+.shortcut-check input{accent-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -488,7 +542,11 @@ li{margin:4px 0;color:var(--text2)}
     <section class="page" data-step="5">
       <h2 class="h1">安装完成</h2>
       <div class="card">
-        <div class="txt">安装成功。请重启 Power BI Desktop，然后在 External Tools 中点击 <b>PBI Claw</b>（若未显示请再次重启 Power BI）。</div>
+        <div class="txt">安装成功。请重启 Power BI Desktop，然后在 External Tools 中点击 <b>PBI Claw</b>。</div>
+        <div class="shortcut-options">
+          <label class="shortcut-check"><input type="checkbox" id="createDesktopShortcut" checked> 在桌面创建快捷方式</label>
+          <label class="shortcut-check"><input type="checkbox" id="createStartMenuShortcut" checked> 在开始菜单创建快捷方式</label>
+        </div>
         <div id="result" style="margin-top:10px"></div>
       </div>
     </section>
@@ -504,7 +562,10 @@ li{margin:4px 0;color:var(--text2)}
 </div>
 
 <script>
-const State = { step: 1, installDir: '', externalToolDirs: [], canBack: false, canNext: true, nextText: '下一步', result: null };
+const State = {
+  step: 1, installDir: '', externalToolDirs: [], canBack: false, canNext: true, nextText: '下一步', result: null,
+  createDesktopShortcut: true, createStartMenuShortcut: true
+};
 let ActionPending = false;
 
 function send(type, payload){ window.chrome.webview.postMessage(JSON.stringify({ type, payload: payload || {} })); }
@@ -534,6 +595,10 @@ function render(){
   $('cancelBtn').disabled = ActionPending;
   $('browseBtn').disabled = ActionPending || State.step !== 2;
   $('installDir').disabled = ActionPending || State.step !== 2;
+  $('createDesktopShortcut').checked = !!State.createDesktopShortcut;
+  $('createStartMenuShortcut').checked = !!State.createStartMenuShortcut;
+  $('createDesktopShortcut').disabled = ActionPending || State.step !== 5;
+  $('createStartMenuShortcut').disabled = ActionPending || State.step !== 5;
   $('status').textContent = State.step === 4 ? '安装中...' : (State.step === 5 ? '安装成功' : '准备就绪');
 
   if (State.step === 5 && State.result){
@@ -543,6 +608,12 @@ function render(){
     lines.push('');
     lines.push('External Tools 配置：');
     (State.result.externalToolDirs || []).forEach(d => lines.push(d));
+    if (State.result.desktopShortcutPath || State.result.startMenuShortcutPath) {
+      lines.push('');
+      lines.push('快捷方式：');
+      if (State.result.desktopShortcutPath) lines.push('桌面：' + State.result.desktopShortcutPath);
+      if (State.result.startMenuShortcutPath) lines.push('开始菜单：' + State.result.startMenuShortcutPath);
+    }
     $('result').innerHTML = lines.map(x => '<div>' + escapeHtml(x) + '</div>').join('');
   }
 }
@@ -575,6 +646,18 @@ $('header').addEventListener('mousedown', (e) => {
 $('installDir').addEventListener('change', e => send('setInstallDir', { value: e.target.value || '' }));
 $('installDir').addEventListener('keyup', e => {
   if (State.step === 2 && e.key === 'Enter') send('next');
+});
+$('createDesktopShortcut').addEventListener('change', () => {
+  send('setShortcutOptions', {
+    createDesktopShortcut: $('createDesktopShortcut').checked,
+    createStartMenuShortcut: $('createStartMenuShortcut').checked
+  });
+});
+$('createStartMenuShortcut').addEventListener('change', () => {
+  send('setShortcutOptions', {
+    createDesktopShortcut: $('createDesktopShortcut').checked,
+    createStartMenuShortcut: $('createStartMenuShortcut').checked
+  });
 });
 
 window.chrome.webview.addEventListener('message', e => {
