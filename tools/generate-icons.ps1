@@ -1,0 +1,193 @@
+param(
+    [string]$SourcePng = "",
+    [switch]$Quiet
+)
+
+$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Drawing
+
+function New-ScaledBitmap {
+    param(
+        [System.Drawing.Image]$Source,
+        [int]$Size
+    )
+
+    $bmp = New-Object System.Drawing.Bitmap $Size, $Size, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    try {
+        $g.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
+        $g.Clear([System.Drawing.Color]::Transparent)
+        $g.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceOver
+        $g.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+        $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $g.DrawImage($Source, 0, 0, $Size, $Size)
+    }
+    finally {
+        $g.Dispose()
+    }
+
+    return $bmp
+}
+
+function New-RoundBitmap {
+    param(
+        [System.Drawing.Image]$Source,
+        [int]$Size,
+        [double]$InsetRatio = 0.0
+    )
+
+    $bmp = New-Object System.Drawing.Bitmap $Size, $Size, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    try {
+        $g.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
+        $g.Clear([System.Drawing.Color]::Transparent)
+        $g.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceOver
+        $g.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+
+        $inset = [float]([Math]::Max(0.0, [Math]::Min(0.45, $InsetRatio)) * $Size)
+        $diameter = [float]$Size - (2.0 * $inset)
+        $path.AddEllipse($inset, $inset, $diameter, $diameter)
+        $g.SetClip($path)
+        $g.DrawImage($Source, 0, 0, $Size, $Size)
+        $g.ResetClip()
+    }
+    finally {
+        $path.Dispose()
+        $g.Dispose()
+    }
+
+    return $bmp
+}
+
+function Get-PngBytes {
+    param([System.Drawing.Bitmap]$Bitmap)
+
+    $ms = New-Object System.IO.MemoryStream
+    try {
+        $Bitmap.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+        return $ms.ToArray()
+    }
+    finally {
+        $ms.Dispose()
+    }
+}
+
+function Write-Ico {
+    param(
+        [System.Drawing.Image]$Source,
+        [int[]]$Sizes,
+        [string]$OutputPath,
+        [switch]$Round
+    )
+
+    $images = @()
+    foreach ($size in $Sizes) {
+        $bmp = if ($Round) { New-RoundBitmap -Source $Source -Size $size } else { New-ScaledBitmap -Source $Source -Size $size }
+        try {
+            $bytes = Get-PngBytes -Bitmap $bmp
+            $images += [pscustomobject]@{
+                Size  = $size
+                Bytes = $bytes
+            }
+        }
+        finally {
+            $bmp.Dispose()
+        }
+    }
+
+    $dir = Split-Path -Path $OutputPath -Parent
+    if (-not [string]::IsNullOrWhiteSpace($dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+
+    $fs = [System.IO.File]::Open($OutputPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+    $bw = New-Object System.IO.BinaryWriter $fs
+    try {
+        $count = $images.Count
+        $bw.Write([UInt16]0) # reserved
+        $bw.Write([UInt16]1) # type: icon
+        $bw.Write([UInt16]$count)
+
+        $offset = 6 + (16 * $count)
+        foreach ($img in $images) {
+            $size = [int]$img.Size
+            $bytes = [byte[]]$img.Bytes
+            $dim = if ($size -ge 256) { [byte]0 } else { [byte]$size }
+
+            $bw.Write($dim)                # width
+            $bw.Write($dim)                # height
+            $bw.Write([byte]0)             # color count
+            $bw.Write([byte]0)             # reserved
+            $bw.Write([UInt16]1)           # color planes
+            $bw.Write([UInt16]32)          # bpp
+            $bw.Write([UInt32]$bytes.Length)
+            $bw.Write([UInt32]$offset)
+            $offset += $bytes.Length
+        }
+
+        foreach ($img in $images) {
+            $bw.Write([byte[]]$img.Bytes)
+        }
+    }
+    finally {
+        $bw.Dispose()
+        $fs.Dispose()
+    }
+}
+
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+if ([string]::IsNullOrWhiteSpace($SourcePng)) {
+    $SourcePng = Join-Path $repoRoot "docs\logo2.png"
+}
+
+$sourcePath = (Resolve-Path $SourcePng).Path
+if (-not (Test-Path $sourcePath)) {
+    throw "Source image not found: $SourcePng"
+}
+
+$toolIco = Join-Path $repoRoot "src\PbiMetadataTool\app.ico"
+$installerIco = Join-Path $repoRoot "src\PbiMetadataInstaller\app.ico"
+$roundPng = Join-Path $repoRoot "external-tools\icon-round.png"
+$roundIco = Join-Path $repoRoot "external-tools\PBIClaw.round.ico"
+$pbiToolJson = Join-Path $repoRoot "external-tools\PBIClaw.pbitool.json"
+
+$iconSizes = @(16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
+
+$source = [System.Drawing.Image]::FromFile($sourcePath)
+try {
+    Write-Ico -Source $source -Sizes $iconSizes -OutputPath $toolIco
+    Write-Ico -Source $source -Sizes $iconSizes -OutputPath $installerIco
+    Write-Ico -Source $source -Sizes $iconSizes -OutputPath $roundIco -Round
+
+    $round256 = New-RoundBitmap -Source $source -Size 256
+    try {
+        $round256.Save($roundPng, [System.Drawing.Imaging.ImageFormat]::Png)
+    }
+    finally {
+        $round256.Dispose()
+    }
+}
+finally {
+    $source.Dispose()
+}
+
+if (Test-Path $pbiToolJson) {
+    $json = Get-Content $pbiToolJson -Raw | ConvertFrom-Json
+    $json.iconData = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($roundPng))
+    $json | ConvertTo-Json -Depth 20 | Set-Content $pbiToolJson -Encoding UTF8
+}
+
+if (-not $Quiet) {
+    Write-Host "Generated:"
+    Write-Host "  - $toolIco"
+    Write-Host "  - $installerIco"
+    Write-Host "  - $roundIco"
+    Write-Host "  - $roundPng"
+    Write-Host "  - $pbiToolJson (iconData)"
+}

@@ -25,11 +25,13 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $toolProject = Join-Path $repoRoot "src\PbiMetadataTool\PbiMetadataTool.csproj"
 $setupProject = Join-Path $repoRoot "src\PbiMetadataInstaller\PbiMetadataInstaller.csproj"
 $toolJsonTemplate = Join-Path $repoRoot "external-tools\PBIClaw.pbitool.json"
+$shortcutRoundIconTemplate = Join-Path $repoRoot "external-tools\PBIClaw.round.ico"
 $versionScript = Join-Path $repoRoot "tools\get-build-version.ps1"
 
 if (-not (Test-Path $toolProject)) { throw "Missing tool project: $toolProject" }
 if (-not (Test-Path $setupProject)) { throw "Missing setup project: $setupProject" }
 if (-not (Test-Path $toolJsonTemplate)) { throw "Missing pbitool json: $toolJsonTemplate" }
+if (-not (Test-Path $shortcutRoundIconTemplate)) { throw "Missing shortcut icon: $shortcutRoundIconTemplate" }
 if (-not (Test-Path $versionScript)) { throw "Missing version script: $versionScript" }
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
@@ -73,9 +75,11 @@ if (-not (Test-Path $toolExe)) {
 Write-Host "Step 2/3: stage installer payload..."
 $payloadExe = Join-Path $setupPayloadDir "PBIClaw.exe"
 $payloadJson = Join-Path $setupPayloadDir "PBIClaw.pbitool.json"
+$payloadShortcutIcon = Join-Path $setupPayloadDir "PBIClaw.round.ico"
 
 Copy-Item $toolExe $payloadExe -Force
 Copy-Item $toolJsonTemplate $payloadJson -Force
+Copy-Item $shortcutRoundIconTemplate $payloadShortcutIcon -Force
 
 $json = Get-Content $payloadJson -Raw | ConvertFrom-Json
 $json.path = "PBIClaw.exe"

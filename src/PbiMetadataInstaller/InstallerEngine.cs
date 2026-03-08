@@ -13,6 +13,7 @@ internal static class InstallerEngine
 {
     private const string ToolExeName = "PBIClaw.exe";
     private const string ToolJsonName = "PBIClaw.pbitool.json";
+    private const string ShortcutIconName = "PBIClaw.round.ico";
     private const string ToolDisplayName = "PBI Claw";
     private const string ToolArguments = "--server \"%server%\" --database \"%database%\" --external-tool";
 
@@ -75,6 +76,8 @@ internal static class InstallerEngine
         }
 
         ExtractEmbeddedResource($"Payload.{ToolExeName}", exePath);
+        var shortcutIconPath = Path.Combine(normalizedInstallDir, ShortcutIconName);
+        TryExtractEmbeddedResource($"Payload.{ShortcutIconName}", shortcutIconPath);
 
         var toolModel = LoadPbiToolModel(exePath);
         var externalToolDirs = GetMachineExternalToolDirs();
@@ -96,18 +99,22 @@ internal static class InstallerEngine
         {
             throw new InvalidOperationException($"未找到可执行文件：{exePath}");
         }
+        var shortcutIconPath = Path.Combine(normalizedInstallDir, ShortcutIconName);
+        var effectiveIconPath = File.Exists(shortcutIconPath) ? shortcutIconPath : exePath;
 
         var desktopPath = ApplyShortcutSetting(
             BuildShortcutCandidates(Environment.SpecialFolder.CommonDesktopDirectory, Environment.SpecialFolder.DesktopDirectory),
             createDesktopShortcut,
             exePath,
-            normalizedInstallDir);
+            normalizedInstallDir,
+            effectiveIconPath);
 
         var startMenuPath = ApplyShortcutSetting(
             BuildShortcutCandidates(Environment.SpecialFolder.CommonPrograms, Environment.SpecialFolder.Programs),
             createStartMenuShortcut,
             exePath,
-            normalizedInstallDir);
+            normalizedInstallDir,
+            effectiveIconPath);
 
         return new ShortcutResult(desktopPath, startMenuPath);
     }
@@ -177,7 +184,8 @@ internal static class InstallerEngine
         IReadOnlyList<string> candidates,
         bool enabled,
         string exePath,
-        string workingDirectory)
+        string workingDirectory,
+        string iconPath)
     {
         if (candidates.Count == 0)
         {
@@ -201,7 +209,7 @@ internal static class InstallerEngine
             Directory.CreateDirectory(dir);
         }
 
-        CreateShortcut(primary, exePath, workingDirectory);
+        CreateShortcut(primary, exePath, workingDirectory, iconPath);
 
         foreach (var other in candidates.Skip(1))
         {
@@ -226,7 +234,7 @@ internal static class InstallerEngine
         }
     }
 
-    private static void CreateShortcut(string shortcutPath, string targetPath, string workingDirectory)
+    private static void CreateShortcut(string shortcutPath, string targetPath, string workingDirectory, string iconPath)
     {
         var shellType = Type.GetTypeFromProgID("WScript.Shell")
             ?? throw new InvalidOperationException("无法创建快捷方式：系统缺少 WScript.Shell。");
@@ -257,7 +265,7 @@ internal static class InstallerEngine
             shortcutType.InvokeMember("TargetPath", BindingFlags.SetProperty, null, shortcut, [targetPath]);
             shortcutType.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, shortcut, [workingDirectory]);
             shortcutType.InvokeMember("Description", BindingFlags.SetProperty, null, shortcut, [ToolDisplayName]);
-            shortcutType.InvokeMember("IconLocation", BindingFlags.SetProperty, null, shortcut, [$"{targetPath},0"]);
+            shortcutType.InvokeMember("IconLocation", BindingFlags.SetProperty, null, shortcut, [$"{iconPath},0"]);
             shortcutType.InvokeMember("Save", BindingFlags.InvokeMethod, null, shortcut, null);
         }
         finally
@@ -288,6 +296,19 @@ internal static class InstallerEngine
         using var stream = FindResourceStream(logicalName);
         using var file = File.Create(outputPath);
         stream.CopyTo(file);
+    }
+
+    private static bool TryExtractEmbeddedResource(string logicalName, string outputPath)
+    {
+        try
+        {
+            ExtractEmbeddedResource(logicalName, outputPath);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private static bool IsAnyToolProcessRunning()
