@@ -367,6 +367,14 @@ input.setting-input[type='number']::-webkit-inner-spin-button { -webkit-appearan
 .field-label { font-size: 12px; font-weight: 600; color: var(--text2); margin-bottom: 4px; }
 select.setting-input { cursor: pointer; }
 
+/* ── Tabular database picker (first connect) ── */
+#db-picker-overlay { position: fixed; inset: 0; padding: 18px; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 205; backdrop-filter: blur(4px); }
+#db-picker-overlay.show { display: flex; }
+#db-picker-dialog { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; width: 520px; max-width: calc(100vw - 36px); display: flex; flex-direction: column; overflow: hidden; }
+#db-picker-dialog .dlg-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+#db-picker-dialog .dlg-footer { padding: 14px 20px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+#db-picker-server { font-size: 12px; color: var(--text2); word-break: break-all; }
+
 /* ── Theme toggle ── */
 .theme-btn { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 15px; transition: all .15s; flex-shrink: 0; }
 .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
@@ -640,7 +648,8 @@ select.setting-input { cursor: pointer; }
               </div>
               <div class="setting-row">
                 <div class="setting-label">默认 Tabular 服务器</div>
-                <input class="setting-input" id="s-default-tabular-server" placeholder="myserver\\tabular 或 myserver:2383">
+                <input class="setting-input" id="s-default-tabular-server" placeholder="例：localhost:2383 或 powerbi://api.powerbi.com/v1.0/myorg/工作区">
+                <div class="setting-desc">支持本地 localhost:2383 与 Power BI 工作区 XMLA 地址。</div>
               </div>
               <div class="setting-row">
                 <div class="setting-label">默认模型浏览页签</div>
@@ -798,7 +807,8 @@ select.setting-input { cursor: pointer; }
     </div>
     <div class="mode-panel" id="panel-tabular">
       <div><div class="field-label">服务器地址</div>
-        <input class="setting-input" id="conn-tabular" placeholder="myserver\tabular 或 myserver:2383"></div>
+        <input class="setting-input" id="conn-tabular" placeholder="例：localhost:2383 或 powerbi://api.powerbi.com/v1.0/myorg/工作区">
+        <div class="setting-desc">示例：localhost:2383 / powerbi://api.powerbi.com/v1.0/myorg/工作区</div></div>
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer">
         <input type="checkbox" id="conn-allow-write2" style="accent-color:var(--accent)"> 允许写回（高风险）
       </label>
@@ -806,6 +816,32 @@ select.setting-input { cursor: pointer; }
     <div class="dlg-footer">
       <button class="dlg-btn" id="conn-cancel">取消</button>
       <button class="dlg-btn primary" id="conn-ok">连接</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tabular Database Picker -->
+<div id="db-picker-overlay">
+  <div id="db-picker-dialog">
+    <div class="dlg-header">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v10c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 10c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+      选择 Tabular 数据库
+    </div>
+    <div class="dlg-body">
+      <div>
+        <div class="field-label">服务器</div>
+        <div id="db-picker-server">-</div>
+      </div>
+      <div>
+        <div class="field-label">数据库</div>
+        <select class="setting-input" id="db-picker-select">
+          <option value="">请选择数据库...</option>
+        </select>
+      </div>
+    </div>
+    <div class="dlg-footer">
+      <button class="dlg-btn" id="db-picker-cancel">取消</button>
+      <button class="dlg-btn primary" id="db-picker-ok">连接</button>
     </div>
   </div>
 </div>
@@ -940,6 +976,7 @@ const State = {
   connected: false, dbName: '', allowChanges: false, aiModel: '', aiProvider: 'openai',
   activeConnectionMode: '', tabularServer: '', tabularDatabases: [],
   dbPickerReason: '', pendingTabularAllowWrite: null,
+  dbPickerModalOpen: false,
   modelSwitching: false, pendingSwitchDbName: '',
   instances: [], pendingPlan: null, backups: [], settings: {}, planHistory: [],
   selectedBackupPath: null, connectMode: 'pbi',
@@ -2668,11 +2705,62 @@ document.getElementById('chat-input').addEventListener('drop', function(e) {
 });
 
 // Connect Dialog
+function setDbPickerBusy(busy) {
+  const select = document.getElementById('db-picker-select');
+  const btnOk = document.getElementById('db-picker-ok');
+  const btnCancel = document.getElementById('db-picker-cancel');
+  if (select) select.disabled = !!busy;
+  if (btnOk) btnOk.disabled = !!busy;
+  if (btnCancel) btnCancel.disabled = !!busy;
+}
+
+function closeDbPickerModal(resetConnectSelection) {
+  const overlay = document.getElementById('db-picker-overlay');
+  if (!overlay) return;
+  overlay.classList.remove('show');
+  State.dbPickerModalOpen = false;
+  setDbPickerBusy(false);
+  if (resetConnectSelection) {
+    State.dbPickerReason = '';
+    State.pendingTabularAllowWrite = null;
+    updateDbSwitchButton();
+  }
+}
+
+function openDbPickerModal(server, list, currentDbName) {
+  const overlay = document.getElementById('db-picker-overlay');
+  const serverEl = document.getElementById('db-picker-server');
+  const select = document.getElementById('db-picker-select');
+  if (!overlay || !serverEl || !select) return;
+
+  serverEl.textContent = server || '-';
+  const dbName = String(currentDbName || '').trim();
+  renderModelDbOptions(list, true, dbName, select);
+  setDbPickerBusy(false);
+  overlay.classList.add('show');
+  State.dbPickerModalOpen = true;
+  select.focus();
+}
+
 document.getElementById('btn-connect').addEventListener('click', openConnectDialog);
 document.getElementById('conn-cancel').addEventListener('click', function() {
   document.getElementById('connect-overlay').classList.remove('show');
 });
 document.getElementById('conn-ok').addEventListener('click', doConnect);
+document.getElementById('db-picker-cancel').addEventListener('click', function() {
+  closeDbPickerModal(true);
+});
+document.getElementById('db-picker-ok').addEventListener('click', function() {
+  const select = document.getElementById('db-picker-select');
+  const dbName = String(select && select.value || '').trim();
+  if (!dbName) {
+    toast('请选择要连接的数据库', 'warn');
+    if (select) select.focus();
+    return;
+  }
+  setDbPickerBusy(true);
+  submitModelDbSelection(dbName);
+});
 document.getElementById('model-db-select').addEventListener('mousedown', function() {
   if (State.connected && State.activeConnectionMode === 'tabular') {
     bridge.send('requestTabularDatabases', { reason: 'switch', server: State.tabularServer || '' });
@@ -2733,6 +2821,7 @@ function openConnectDialog() {
   if (State.instances.length === 0) {
     requestInstanceScan(true, true);
   }
+  closeDbPickerModal(false);
   document.getElementById('connect-overlay').classList.add('show');
   document.getElementById('conn-tabular').value = State.uiPrefs.defaultTabularServer || '';
   setConnectModeUI(State.uiPrefs.defaultConnectMode);
@@ -2752,8 +2841,8 @@ function doConnect() {
   document.getElementById('connect-overlay').classList.remove('show');
 }
 
-function renderModelDbOptions(list, includePlaceholder, selectedName) {
-  const select = document.getElementById('model-db-select');
+function renderModelDbOptions(list, includePlaceholder, selectedName, targetSelect) {
+  const select = targetSelect || document.getElementById('model-db-select');
   if (!select) return;
   const opts = [];
   if (includePlaceholder) {
@@ -2831,7 +2920,8 @@ function openModelDbSelector(payload) {
   if (State.dbPickerReason === 'connect') {
     showPage('dashboard');
     updateDbSwitchButton();
-    select.focus();
+    const currentDbName = String(payload && payload.currentDatabase || '').trim();
+    openDbPickerModal(server, list, currentDbName);
   } else {
     updateDbSwitchButton();
   }
@@ -2841,14 +2931,15 @@ function openModelDbSelector(payload) {
   }
 }
 
-function submitModelDbSelection() {
+function submitModelDbSelection(forcedDbName) {
   const select = document.getElementById('model-db-select');
   if (!select) return;
 
-  const dbName = String(select.value || '').trim();
+  const dbName = String(forcedDbName || select.value || '').trim();
   if (!dbName) {
     return;
   }
+  select.value = dbName;
 
   const payload = {
     server: State.tabularServer,
@@ -2861,8 +2952,10 @@ function submitModelDbSelection() {
 
   showModelSwitchingState(dbName);
   bridge.send('connectTabularDatabase', payload);
-  State.dbPickerReason = '';
-  State.pendingTabularAllowWrite = null;
+  if (State.dbPickerReason !== 'connect') {
+    State.dbPickerReason = '';
+    State.pendingTabularAllowWrite = null;
+  }
 }
 
 function updateInstances(list) {
@@ -3606,6 +3699,9 @@ const App = {
         }
         State.dbPickerReason = '';
         State.pendingTabularAllowWrite = null;
+        if (State.dbPickerModalOpen) {
+          closeDbPickerModal(false);
+        }
         if (!silent) {
           State.expandedTables = {};
           State.expandedRoles = {};
@@ -3627,6 +3723,9 @@ const App = {
         State.tabularDatabases = [];
         State.dbPickerReason = '';
         State.pendingTabularAllowWrite = null;
+        if (State.dbPickerModalOpen) {
+          closeDbPickerModal(false);
+        }
         State.expandedTables = {};
         State.expandedRoles = {};
         updateChips();
@@ -3653,6 +3752,12 @@ const App = {
         break;
       case 'connectTabularDatabaseFailed':
         clearModelSwitchingState(true);
+        if (State.dbPickerReason === 'connect') {
+          setDbPickerBusy(false);
+          if (!State.dbPickerModalOpen) {
+            openDbPickerModal(State.tabularServer, State.tabularDatabases, State.dbName);
+          }
+        }
         break;
       case 'chatStart':
         handleChatStart(msg.payload || {});

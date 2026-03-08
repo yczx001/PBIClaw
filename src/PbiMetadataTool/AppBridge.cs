@@ -17,6 +17,7 @@ internal sealed class AppBridge
 {
     private const int MaxHistoryEntries = 500;
     private const string GithubLatestReleaseApiUrl = "https://api.github.com/repos/yczx001/PBIClaw/releases/latest";
+    private const string GithubReleasesApiUrl = "https://api.github.com/repos/yczx001/PBIClaw/releases?per_page=20";
     private const string GithubLatestReleasePageUrl = "https://github.com/yczx001/PBIClaw/releases/latest";
     private const string ReleasePageUrl = "https://github.com/yczx001/PBIClaw/releases";
     private const int ChatRequestTimeoutSeconds = 180;
@@ -2409,14 +2410,24 @@ ADDCOLUMNS(
 
     private async Task<ReleaseInfo> GetLatestReleaseAsync()
     {
-        Exception? apiError = null;
+        Exception? listApiError = null;
+        try
+        {
+            return await GetLatestReleaseFromReleasesApiAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            listApiError = ex;
+        }
+
+        Exception? latestApiError = null;
         try
         {
             return await GetLatestReleaseFromApiAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            apiError = ex;
+            latestApiError = ex;
         }
 
         try
@@ -2426,8 +2437,74 @@ ADDCOLUMNS(
         catch (Exception fallbackEx)
         {
             throw new InvalidOperationException(
-                $"检测更新失败（GitHub API 与回退页面都不可用）。API: {apiError?.Message}；回退: {fallbackEx.Message}");
+                "检测更新失败（GitHub API 与回退页面都不可用）。" +
+                $"releases接口: {listApiError?.Message}；latest接口: {latestApiError?.Message}；回退页面: {fallbackEx.Message}");
         }
+    }
+
+    private async Task<ReleaseInfo> GetLatestReleaseFromReleasesApiAsync()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, GithubReleasesApiUrl);
+        request.Headers.Accept.Clear();
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        using var response = await UpdateHttpClient.SendAsync(request).ConfigureAwait(false);
+        var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"检测更新失败 ({(int)response.StatusCode}): {content}");
+        }
+
+        using var doc = JsonDocument.Parse(content);
+        if (doc.RootElement.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidOperationException("releases 返回格式异常。");
+        }
+
+        ReleaseInfo? best = null;
+        Version? bestVersion = null;
+        foreach (var release in doc.RootElement.EnumerateArray())
+        {
+            if (release.TryGetProperty("draft", out var draftNode) &&
+                draftNode.ValueKind == JsonValueKind.True)
+            {
+                continue;
+            }
+
+            if (release.TryGetProperty("prerelease", out var prereleaseNode) &&
+                prereleaseNode.ValueKind == JsonValueKind.True)
+            {
+                continue;
+            }
+
+            var info = ParseReleaseInfo(release);
+            if (string.IsNullOrWhiteSpace(info.Version) ||
+                string.Equals(info.Version, "unknown", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!TryParseVersion(info.Version, out var parsed))
+            {
+                if (best is null)
+                {
+                    best = info;
+                }
+                continue;
+            }
+
+            if (best is null || bestVersion is null || parsed > bestVersion)
+            {
+                best = info;
+                bestVersion = parsed;
+            }
+        }
+
+        if (best is null)
+        {
+            throw new InvalidOperationException("releases 列表中未找到有效版本。");
+        }
+
+        return best;
     }
 
     private async Task<ReleaseInfo> GetLatestReleaseFromApiAsync()
@@ -2443,73 +2520,7 @@ ADDCOLUMNS(
         }
 
         using var doc = JsonDocument.Parse(content);
-        var root = doc.RootElement;
-
-        var tagName = GetJsonString(root, "tag_name");
-        var releaseName = GetJsonString(root, "name");
-        var customVersion = GetJsonString(root, "version");
-        var version = NormalizeReleaseVersion(tagName, releaseName);
-        if (string.IsNullOrWhiteSpace(version) || string.Equals(version, "unknown", StringComparison.OrdinalIgnoreCase))
-        {
-            version = NormalizeReleaseVersion(customVersion, string.Empty);
-        }
-
-        var releaseUrl = GetJsonString(root, "html_url");
-        if (string.IsNullOrWhiteSpace(releaseUrl))
-        {
-            releaseUrl = GetJsonString(root, "releaseUrl");
-        }
-        if (string.IsNullOrWhiteSpace(releaseUrl))
-        {
-            releaseUrl = ReleasePageUrl;
-        }
-
-        var summary = GetJsonString(root, "body");
-        if (string.IsNullOrWhiteSpace(summary))
-        {
-            summary = GetJsonString(root, "summary");
-        }
-        if (!string.IsNullOrWhiteSpace(summary) && summary.Length > 500)
-        {
-            summary = summary[..500] + "...";
-        }
-
-        var publishedAt = GetJsonString(root, "published_at");
-        if (string.IsNullOrWhiteSpace(publishedAt))
-        {
-            publishedAt = GetJsonString(root, "publishedAt");
-        }
-
-        var downloadUrl = string.Empty;
-        if (root.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var asset in assets.EnumerateArray())
-            {
-                var assetName = GetJsonString(asset, "name");
-                if (!assetName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                if (!assetName.Contains("setup", StringComparison.OrdinalIgnoreCase) &&
-                    !assetName.Contains("installer", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                downloadUrl = GetJsonString(asset, "browser_download_url");
-                if (!string.IsNullOrWhiteSpace(downloadUrl))
-                {
-                    break;
-                }
-            }
-        }
-        if (string.IsNullOrWhiteSpace(downloadUrl))
-        {
-            downloadUrl = GetJsonString(root, "downloadUrl");
-        }
-
-        return new ReleaseInfo(version, releaseUrl, downloadUrl, publishedAt, summary ?? string.Empty);
+        return ParseReleaseInfo(doc.RootElement);
     }
 
     private async Task<ReleaseInfo> GetLatestReleaseFromLatestPageAsync()
@@ -2580,6 +2591,75 @@ ADDCOLUMNS(
         }
 
         return string.Empty;
+    }
+
+    private static ReleaseInfo ParseReleaseInfo(JsonElement root)
+    {
+        var tagName = GetJsonString(root, "tag_name");
+        var releaseName = GetJsonString(root, "name");
+        var customVersion = GetJsonString(root, "version");
+        var version = NormalizeReleaseVersion(tagName, releaseName);
+        if (string.IsNullOrWhiteSpace(version) || string.Equals(version, "unknown", StringComparison.OrdinalIgnoreCase))
+        {
+            version = NormalizeReleaseVersion(customVersion, string.Empty);
+        }
+
+        var releaseUrl = GetJsonString(root, "html_url");
+        if (string.IsNullOrWhiteSpace(releaseUrl))
+        {
+            releaseUrl = GetJsonString(root, "releaseUrl");
+        }
+        if (string.IsNullOrWhiteSpace(releaseUrl))
+        {
+            releaseUrl = ReleasePageUrl;
+        }
+
+        var summary = GetJsonString(root, "body");
+        if (string.IsNullOrWhiteSpace(summary))
+        {
+            summary = GetJsonString(root, "summary");
+        }
+        if (!string.IsNullOrWhiteSpace(summary) && summary.Length > 500)
+        {
+            summary = summary[..500] + "...";
+        }
+
+        var publishedAt = GetJsonString(root, "published_at");
+        if (string.IsNullOrWhiteSpace(publishedAt))
+        {
+            publishedAt = GetJsonString(root, "publishedAt");
+        }
+
+        var downloadUrl = string.Empty;
+        if (root.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var asset in assets.EnumerateArray())
+            {
+                var assetName = GetJsonString(asset, "name");
+                if (!assetName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!assetName.Contains("setup", StringComparison.OrdinalIgnoreCase) &&
+                    !assetName.Contains("installer", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                downloadUrl = GetJsonString(asset, "browser_download_url");
+                if (!string.IsNullOrWhiteSpace(downloadUrl))
+                {
+                    break;
+                }
+            }
+        }
+        if (string.IsNullOrWhiteSpace(downloadUrl))
+        {
+            downloadUrl = GetJsonString(root, "downloadUrl");
+        }
+
+        return new ReleaseInfo(version, releaseUrl, downloadUrl, publishedAt, summary ?? string.Empty);
     }
 
     private static string NormalizeReleaseVersion(string tagName, string releaseName)
