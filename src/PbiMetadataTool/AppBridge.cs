@@ -16,8 +16,9 @@ namespace PbiMetadataTool;
 internal sealed class AppBridge
 {
     private const int MaxHistoryEntries = 500;
-    private const string ReleaseManifestUrl = "https://pbihub.cn/downloads/PBIClaw/latest.json";
-    private const string ReleasePageUrl = "https://pbihub.cn/downloads/PBIClaw/";
+    private const string GithubLatestReleaseApiUrl = "https://api.github.com/repos/yczx001/PBIClaw/releases/latest";
+    private const string GithubLatestReleasePageUrl = "https://github.com/yczx001/PBIClaw/releases/latest";
+    private const string ReleasePageUrl = "https://github.com/yczx001/PBIClaw/releases";
     private const int ChatRequestTimeoutSeconds = 180;
     private static readonly JsonSerializerOptions HistoryJsonOptions = new() { WriteIndented = true };
     private static readonly HttpClient UpdateHttpClient = CreateUpdateHttpClient();
@@ -115,9 +116,10 @@ internal sealed class AppBridge
     private void OnReady()
     {
         _settings = _settingsStore.Load();
-        var instances = _startupOptions.ExternalToolMode
+        var detectedInstances = _startupOptions.ExternalToolMode
             ? Array.Empty<PowerBiInstanceInfo>()
             : _detector.DiscoverInstances().ToArray();
+        var instances = FilterActiveDesktopInstances(detectedInstances);
         Send("init", new
         {
             settings = SettingsDto(_settings),
@@ -133,7 +135,7 @@ internal sealed class AppBridge
     {
         try
         {
-            var list = _detector.DiscoverInstances();
+            var list = FilterActiveDesktopInstances(_detector.DiscoverInstances());
             Send("instances", new { instances = list.Select(InstanceDto).ToArray() });
         }
         catch (Exception ex)
@@ -232,12 +234,14 @@ internal sealed class AppBridge
             var database = p["database"]?.GetValue<string>() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(server))
             {
+                Send("connectTabularDatabaseFailed", new { error = "服务器地址为空，请重新选择。" });
                 Send("status", new { text = "服务器地址为空，请重新选择。", level = "warn" });
                 return;
             }
 
             if (string.IsNullOrWhiteSpace(database))
             {
+                Send("connectTabularDatabaseFailed", new { error = "请选择数据库。" });
                 Send("status", new { text = "请选择数据库。", level = "warn" });
                 return;
             }
@@ -255,6 +259,7 @@ internal sealed class AppBridge
         }
         catch (Exception ex)
         {
+            Send("connectTabularDatabaseFailed", new { error = ex.Message });
             Send("status", new { text = $"连接数据库失败: {ex.Message}", level = "error" });
         }
     }
@@ -1214,56 +1219,24 @@ ADDCOLUMNS(
     {
         try
         {
-            var downloadUrl = payload["downloadUrl"]?.GetValue<string>()?.Trim();
             var releaseUrl = payload["releaseUrl"]?.GetValue<string>()?.Trim();
-            if (string.IsNullOrWhiteSpace(downloadUrl))
-            {
-                downloadUrl = _latestRelease?.DownloadUrl;
-            }
             if (string.IsNullOrWhiteSpace(releaseUrl))
             {
                 releaseUrl = _latestRelease?.ReleaseUrl;
             }
 
-            if (string.IsNullOrWhiteSpace(downloadUrl))
+            if (string.IsNullOrWhiteSpace(releaseUrl))
             {
-                if (string.IsNullOrWhiteSpace(releaseUrl))
-                {
-                    throw new InvalidOperationException("未找到可下载的安装包地址，请先检测更新。");
-                }
-
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = releaseUrl,
-                    UseShellExecute = true
-                });
-                Send("upgradeStarted", new { path = releaseUrl });
-                return;
+                releaseUrl = ReleasePageUrl;
             }
-
-            var targetDir = Path.Combine(Path.GetTempPath(), "PBIClaw", "updates");
-            Directory.CreateDirectory(targetDir);
-            var filePath = Path.Combine(targetDir, $"PBIClawSetup-{DateTime.Now:yyyyMMdd-HHmmss}.exe");
-
-            using var request = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
-            using var response = await UpdateHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-            {
-                var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                throw new InvalidOperationException($"下载安装包失败 ({(int)response.StatusCode}): {content}");
-            }
-
-            await using var input = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-            await using var output = File.Create(filePath);
-            await input.CopyToAsync(output).ConfigureAwait(false);
 
             Process.Start(new ProcessStartInfo
             {
-                FileName = filePath,
+                FileName = releaseUrl,
                 UseShellExecute = true
             });
 
-            Send("upgradeStarted", new { path = filePath });
+            Send("upgradeStarted", new { path = releaseUrl });
         }
         catch (Exception ex)
         {
@@ -1442,6 +1415,18 @@ ADDCOLUMNS(
         {
             return null;
         }
+    }
+
+    private static IReadOnlyList<PowerBiInstanceInfo> FilterActiveDesktopInstances(IReadOnlyList<PowerBiInstanceInfo> instances)
+    {
+        if (instances.Count == 0)
+        {
+            return instances;
+        }
+
+        return instances
+            .Where(i => i.DesktopPid > 0)
+            .ToArray();
     }
 
     private void TryAutoConnectFromExternalTool(IReadOnlyList<PowerBiInstanceInfo>? instances = null)
@@ -2424,7 +2409,32 @@ ADDCOLUMNS(
 
     private async Task<ReleaseInfo> GetLatestReleaseAsync()
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, ReleaseManifestUrl);
+        Exception? apiError = null;
+        try
+        {
+            return await GetLatestReleaseFromApiAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            apiError = ex;
+        }
+
+        try
+        {
+            return await GetLatestReleaseFromLatestPageAsync().ConfigureAwait(false);
+        }
+        catch (Exception fallbackEx)
+        {
+            throw new InvalidOperationException(
+                $"检测更新失败（GitHub API 与回退页面都不可用）。API: {apiError?.Message}；回退: {fallbackEx.Message}");
+        }
+    }
+
+    private async Task<ReleaseInfo> GetLatestReleaseFromApiAsync()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, GithubLatestReleaseApiUrl);
+        request.Headers.Accept.Clear();
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         using var response = await UpdateHttpClient.SendAsync(request).ConfigureAwait(false);
         var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
@@ -2435,7 +2445,6 @@ ADDCOLUMNS(
         using var doc = JsonDocument.Parse(content);
         var root = doc.RootElement;
 
-        // Supports both GitHub release schema and custom schema hosted on pbihub.cn.
         var tagName = GetJsonString(root, "tag_name");
         var releaseName = GetJsonString(root, "name");
         var customVersion = GetJsonString(root, "version");
@@ -2503,10 +2512,61 @@ ADDCOLUMNS(
         return new ReleaseInfo(version, releaseUrl, downloadUrl, publishedAt, summary ?? string.Empty);
     }
 
+    private async Task<ReleaseInfo> GetLatestReleaseFromLatestPageAsync()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, GithubLatestReleasePageUrl);
+        request.Headers.Accept.Clear();
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
+        using var response = await UpdateHttpClient.SendAsync(request).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            throw new InvalidOperationException($"回退检测失败 ({(int)response.StatusCode}): {content}");
+        }
+
+        var finalUri = response.RequestMessage?.RequestUri;
+        var releaseUrl = finalUri?.ToString() ?? ReleasePageUrl;
+        var tagCandidate = string.Empty;
+
+        if (finalUri is not null)
+        {
+            var absPath = finalUri.AbsolutePath ?? string.Empty;
+            var marker = "/releases/tag/";
+            var idx = absPath.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0)
+            {
+                tagCandidate = absPath[(idx + marker.Length)..];
+                tagCandidate = Uri.UnescapeDataString(tagCandidate);
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(tagCandidate))
+        {
+            var html = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            var match = Regex.Match(
+                html,
+                "/yczx001/PBIClaw/releases/tag/(?<tag>[^\\\"#?]+)",
+                RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                tagCandidate = Uri.UnescapeDataString(match.Groups["tag"].Value);
+                releaseUrl = "https://github.com/yczx001/PBIClaw/releases/tag/" + tagCandidate;
+            }
+        }
+
+        var version = NormalizeReleaseVersion(tagCandidate, string.Empty);
+        if (string.IsNullOrWhiteSpace(version) || string.Equals(version, "unknown", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("回退检测未能解析最新版本号。");
+        }
+
+        return new ReleaseInfo(version, releaseUrl, string.Empty, string.Empty, string.Empty);
+    }
+
     private static HttpClient CreateUpdateHttpClient()
     {
         var client = new HttpClient();
-        client.Timeout = TimeSpan.FromSeconds(25);
+        client.Timeout = TimeSpan.FromSeconds(30);
         client.DefaultRequestHeaders.UserAgent.ParseAdd("PBIClaw-Updater/1.0");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;

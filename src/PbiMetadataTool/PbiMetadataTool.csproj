@@ -22,5 +22,6 @@
 
   <ItemGroup>
     <EmbeddedResource Include="ui\index.html" />
+    <EmbeddedResource Include="ui\logo2.png" />
   </ItemGroup>
 </Project>

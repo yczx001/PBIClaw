@@ -229,7 +229,30 @@ internal sealed class MainFormWebView : Form
 
         using var stream = asm.GetManifestResourceStream(resourceName)!;
         using var reader = new StreamReader(stream, System.Text.Encoding.UTF8);
-        return reader.ReadToEnd();
+        var html = reader.ReadToEnd();
+        var logoUri = LoadEmbeddedLogoDataUri(asm);
+        return html.Replace("__APP_LOGO_URI__", logoUri);
+    }
+
+    private static string LoadEmbeddedLogoDataUri(Assembly asm)
+    {
+        var resourceName = asm.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith("logo2.png", StringComparison.OrdinalIgnoreCase));
+        if (resourceName is null)
+        {
+            return string.Empty;
+        }
+
+        using var stream = asm.GetManifestResourceStream(resourceName);
+        if (stream is null)
+        {
+            return string.Empty;
+        }
+
+        using var memory = new MemoryStream();
+        stream.CopyTo(memory);
+        var base64 = Convert.ToBase64String(memory.ToArray());
+        return $"data:image/png;base64,{base64}";
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
