@@ -373,7 +373,6 @@ select.setting-input { cursor: pointer; }
 #db-picker-dialog { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; width: 520px; max-width: calc(100vw - 36px); display: flex; flex-direction: column; overflow: hidden; }
 #db-picker-dialog .dlg-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
 #db-picker-dialog .dlg-footer { padding: 14px 20px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
-#db-picker-server { font-size: 12px; color: var(--text2); word-break: break-all; }
 
 /* ── Theme toggle ── */
 .theme-btn { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 15px; transition: all .15s; flex-shrink: 0; }
@@ -648,8 +647,7 @@ select.setting-input { cursor: pointer; }
               </div>
               <div class="setting-row">
                 <div class="setting-label">默认 Tabular 服务器</div>
-                <input class="setting-input" id="s-default-tabular-server" placeholder="例：localhost:2383 或 powerbi://api.powerbi.com/v1.0/myorg/工作区">
-                <div class="setting-desc">支持本地 localhost:2383 与 Power BI 工作区 XMLA 地址。</div>
+                <input class="setting-input" id="s-default-tabular-server" placeholder="localhost:2383 / powerbi://.../工作区">
               </div>
               <div class="setting-row">
                 <div class="setting-label">默认模型浏览页签</div>
@@ -807,8 +805,7 @@ select.setting-input { cursor: pointer; }
     </div>
     <div class="mode-panel" id="panel-tabular">
       <div><div class="field-label">服务器地址</div>
-        <input class="setting-input" id="conn-tabular" placeholder="例：localhost:2383 或 powerbi://api.powerbi.com/v1.0/myorg/工作区">
-        <div class="setting-desc">示例：localhost:2383 / powerbi://api.powerbi.com/v1.0/myorg/工作区</div></div>
+        <input class="setting-input" id="conn-tabular" placeholder="localhost:2383 / powerbi://.../工作区"></div>
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer">
         <input type="checkbox" id="conn-allow-write2" style="accent-color:var(--accent)"> 允许写回（高风险）
       </label>
@@ -828,10 +825,6 @@ select.setting-input { cursor: pointer; }
       选择 Tabular 数据库
     </div>
     <div class="dlg-body">
-      <div>
-        <div class="field-label">服务器</div>
-        <div id="db-picker-server">-</div>
-      </div>
       <div>
         <div class="field-label">数据库</div>
         <select class="setting-input" id="db-picker-select">
@@ -2729,11 +2722,9 @@ function closeDbPickerModal(resetConnectSelection) {
 
 function openDbPickerModal(server, list, currentDbName) {
   const overlay = document.getElementById('db-picker-overlay');
-  const serverEl = document.getElementById('db-picker-server');
   const select = document.getElementById('db-picker-select');
-  if (!overlay || !serverEl || !select) return;
+  if (!overlay || !select) return;
 
-  serverEl.textContent = server || '-';
   const dbName = String(currentDbName || '').trim();
   renderModelDbOptions(list, true, dbName, select);
   setDbPickerBusy(false);

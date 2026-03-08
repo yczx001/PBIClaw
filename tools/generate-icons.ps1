@@ -35,11 +35,11 @@ function New-RoundBitmap {
     param(
         [System.Drawing.Image]$Source,
         [int]$Size,
-        [double]$InsetRatio = 0.0,
-        [int]$Supersample = 4
+        [double]$InsetRatio = 0.0125,
+        [int]$Supersample = 8
     )
 
-    $ss = [Math]::Max(2, [Math]::Min(8, $Supersample))
+    $ss = [Math]::Max(2, [Math]::Min(16, $Supersample))
     $ssSize = $Size * $ss
     $high = New-Object System.Drawing.Bitmap $ssSize, $ssSize, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $gHigh = [System.Drawing.Graphics]::FromImage($high)
@@ -51,13 +51,14 @@ function New-RoundBitmap {
         $gHigh.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
         $gHigh.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
         $gHigh.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-        $gHigh.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $gHigh.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::Half
 
-        # Keep the circle inside the square and reserve half a pixel for anti-aliased edge.
+        # Keep circle edges inside bounds and reserve space for anti-aliased pixels.
         $ratioInsetPx = [Math]::Max(0.0, [Math]::Min(0.45, $InsetRatio)) * $Size
-        $insetPx = [Math]::Max(0.5, $ratioInsetPx)
+        $insetPx = [Math]::Max(1.0, $ratioInsetPx)
         $insetHi = [float]($insetPx * $ss)
         $diameterHi = [float]$ssSize - (2.0 * $insetHi)
+        if ($diameterHi -lt 1.0) { $diameterHi = 1.0 }
         $path.AddEllipse($insetHi, $insetHi, $diameterHi, $diameterHi)
         $gHigh.SetClip($path)
         $gHigh.DrawImage($Source, 0, 0, $ssSize, $ssSize)
@@ -114,17 +115,31 @@ function Write-Ico {
     )
 
     $images = @()
-    foreach ($size in $Sizes) {
-        $bmp = if ($Round) { New-RoundBitmap -Source $Source -Size $size } else { New-ScaledBitmap -Source $Source -Size $size }
-        try {
-            $bytes = Get-PngBytes -Bitmap $bmp
-            $images += [pscustomobject]@{
-                Size  = $size
-                Bytes = $bytes
+    $roundMaster = $null
+    try {
+        if ($Round) {
+            $maxSize = [int](($Sizes | Measure-Object -Maximum).Maximum)
+            $masterSize = [Math]::Max(1024, $maxSize * 4)
+            $roundMaster = New-RoundBitmap -Source $Source -Size $masterSize -InsetRatio 0.0125 -Supersample 8
+        }
+
+        foreach ($size in $Sizes) {
+            $bmp = if ($Round) { New-ScaledBitmap -Source $roundMaster -Size $size } else { New-ScaledBitmap -Source $Source -Size $size }
+            try {
+                $bytes = Get-PngBytes -Bitmap $bmp
+                $images += [pscustomobject]@{
+                    Size  = $size
+                    Bytes = $bytes
+                }
+            }
+            finally {
+                $bmp.Dispose()
             }
         }
-        finally {
-            $bmp.Dispose()
+    }
+    finally {
+        if ($null -ne $roundMaster) {
+            $roundMaster.Dispose()
         }
     }
 
@@ -192,12 +207,18 @@ try {
     Write-Ico -Source $source -Sizes $iconSizes -OutputPath $installerIco
     Write-Ico -Source $source -Sizes $iconSizes -OutputPath $roundIco -Round
 
-    $round256 = New-RoundBitmap -Source $source -Size 256
+    $roundMaster = New-RoundBitmap -Source $source -Size 1024 -InsetRatio 0.0125 -Supersample 8
     try {
-        $round256.Save($roundPng, [System.Drawing.Imaging.ImageFormat]::Png)
+        $round256 = New-ScaledBitmap -Source $roundMaster -Size 256
+        try {
+            $round256.Save($roundPng, [System.Drawing.Imaging.ImageFormat]::Png)
+        }
+        finally {
+            $round256.Dispose()
+        }
     }
     finally {
-        $round256.Dispose()
+        $roundMaster.Dispose()
     }
 }
 finally {
