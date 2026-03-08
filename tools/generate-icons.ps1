@@ -35,34 +35,61 @@ function New-RoundBitmap {
     param(
         [System.Drawing.Image]$Source,
         [int]$Size,
-        [double]$InsetRatio = 0.0
+        [double]$InsetRatio = 0.0,
+        [int]$Supersample = 4
     )
 
-    $bmp = New-Object System.Drawing.Bitmap $Size, $Size, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $ss = [Math]::Max(2, [Math]::Min(8, $Supersample))
+    $ssSize = $Size * $ss
+    $high = New-Object System.Drawing.Bitmap $ssSize, $ssSize, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $gHigh = [System.Drawing.Graphics]::FromImage($high)
     $path = New-Object System.Drawing.Drawing2D.GraphicsPath
     try {
-        $g.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
-        $g.Clear([System.Drawing.Color]::Transparent)
-        $g.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceOver
-        $g.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
-        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-        $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-        $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $gHigh.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
+        $gHigh.Clear([System.Drawing.Color]::Transparent)
+        $gHigh.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceOver
+        $gHigh.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+        $gHigh.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $gHigh.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $gHigh.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
 
-        $inset = [float]([Math]::Max(0.0, [Math]::Min(0.45, $InsetRatio)) * $Size)
-        $diameter = [float]$Size - (2.0 * $inset)
-        $path.AddEllipse($inset, $inset, $diameter, $diameter)
-        $g.SetClip($path)
-        $g.DrawImage($Source, 0, 0, $Size, $Size)
-        $g.ResetClip()
+        # Keep the circle inside the square and reserve half a pixel for anti-aliased edge.
+        $ratioInsetPx = [Math]::Max(0.0, [Math]::Min(0.45, $InsetRatio)) * $Size
+        $insetPx = [Math]::Max(0.5, $ratioInsetPx)
+        $insetHi = [float]($insetPx * $ss)
+        $diameterHi = [float]$ssSize - (2.0 * $insetHi)
+        $path.AddEllipse($insetHi, $insetHi, $diameterHi, $diameterHi)
+        $gHigh.SetClip($path)
+        $gHigh.DrawImage($Source, 0, 0, $ssSize, $ssSize)
+        $gHigh.ResetClip()
+
+        $out = New-Object System.Drawing.Bitmap $Size, $Size, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $gOut = [System.Drawing.Graphics]::FromImage($out)
+        $imgAttr = New-Object System.Drawing.Imaging.ImageAttributes
+        try {
+            $gOut.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
+            $gOut.Clear([System.Drawing.Color]::Transparent)
+            $gOut.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceOver
+            $gOut.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+            $gOut.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+            $gOut.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $gOut.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+            $imgAttr.SetWrapMode([System.Drawing.Drawing2D.WrapMode]::TileFlipXY)
+            $destRect = New-Object System.Drawing.Rectangle 0, 0, $Size, $Size
+            $gOut.DrawImage($high, $destRect, 0, 0, $ssSize, $ssSize, [System.Drawing.GraphicsUnit]::Pixel, $imgAttr)
+        }
+        finally {
+            $imgAttr.Dispose()
+            $gOut.Dispose()
+        }
+
+        return $out
     }
     finally {
         $path.Dispose()
-        $g.Dispose()
+        $gHigh.Dispose()
+        $high.Dispose()
     }
-
-    return $bmp
 }
 
 function Get-PngBytes {
