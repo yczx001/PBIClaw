@@ -576,7 +576,8 @@ internal sealed class AppBridge
             Send("status", new { text = "写回功能已禁用，请在设置中开启", level = "warn" });
             return;
         }
-        if (!_currentPort.HasValue || _model is null)
+        var connectionString = GetCurrentConnectionString();
+        if (string.IsNullOrWhiteSpace(connectionString) || _model is null)
         {
             Send("status", new { text = "未连接到模型", level = "warn" });
             return;
@@ -617,7 +618,7 @@ internal sealed class AppBridge
 
         try
         {
-            var analysis = _writer.AnalyzeActions(_currentPort.Value, _model.DatabaseName, _preflightPlan);
+            var analysis = _writer.AnalyzeActions(connectionString, _model.DatabaseName, _preflightPlan);
             var preflightDetail = $"错误 {analysis.Errors.Count}，警告 {analysis.Warnings.Count}。";
             if (analysis.Errors.Count > 0)
             {
@@ -664,7 +665,9 @@ internal sealed class AppBridge
 
     private void OnConfirmExecute()
     {
-        if (_preflightPlan is null || !_currentPort.HasValue || _model is null) return;
+        if (_preflightPlan is null || _model is null) return;
+        var connectionString = GetCurrentConnectionString();
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
         var currentPlan = _preflightPlan;
         var sourcePlan = _preflightSourcePlan ?? _pendingPlan;
         var pendingIndices = _preflightPendingIndices;
@@ -674,7 +677,8 @@ internal sealed class AppBridge
             var (snapshot, rollback) = CreateBackup(currentPlan);
             Send("log", new { text = $"执行前已创建备份:\n- {snapshot}\n- {rollback}" });
 
-            var results = _writer.ApplyActions(_currentPort.Value, _model.DatabaseName, currentPlan);
+            var databaseName = _model.DatabaseName;
+            var results = _writer.ApplyActions(connectionString, databaseName, currentPlan);
             AbiActionPlan? remainingPlan = null;
             if (!isRollback && sourcePlan is not null && pendingIndices.Count > 0)
             {
@@ -697,8 +701,10 @@ internal sealed class AppBridge
             _preflightIsRollback = false;
 
             // Refresh model
-            _model = _reader.ReadMetadata(_currentPort.Value, _model.DatabaseName);
-            _report = ResolveReportMetadataForPort(_currentPort.Value).Report;
+            _model = _reader.ReadMetadata(connectionString, databaseName);
+            _report = _currentPort.HasValue
+                ? ResolveReportMetadataForPort(_currentPort.Value).Report
+                : null;
             Send("connected", BuildConnectedPayload(silent: true));
 
             Send("executeSuccess", new
@@ -733,7 +739,8 @@ internal sealed class AppBridge
     private void OnExecuteRollback(JsonObject p)
     {
         var path = p["path"]?.GetValue<string>() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(path) || !_currentPort.HasValue || _model is null)
+        var connectionString = GetCurrentConnectionString();
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(connectionString) || _model is null)
         {
             Send("status", new { text = "无法执行回滚：未连接或路径无效", level = "warn" });
             return;
@@ -753,7 +760,7 @@ internal sealed class AppBridge
                 return;
             }
 
-            var analysis = _writer.AnalyzeActions(_currentPort.Value, _model.DatabaseName, plan);
+            var analysis = _writer.AnalyzeActions(connectionString, _model.DatabaseName, plan);
             _preflightPlan = plan;
             _preflightSourcePlan = null;
             _preflightPendingIndices = [];
@@ -934,12 +941,13 @@ internal sealed class AppBridge
                 return ("不可回滚", "该回滚点不包含可自动执行动作。", summary, false);
             }
 
-            if (!_currentPort.HasValue || _model is null)
+            var connectionString = GetCurrentConnectionString();
+            if (string.IsNullOrWhiteSpace(connectionString) || _model is null)
             {
                 return ("待连接验证", $"计划包含 {plan.Actions.Count} 个动作，连接模型后可验证可执行性。", summary, false);
             }
 
-            var analysis = _writer.AnalyzeActions(_currentPort.Value, _model.DatabaseName, plan);
+            var analysis = _writer.AnalyzeActions(connectionString, _model.DatabaseName, plan);
             if (analysis.HasErrors)
             {
                 var first = analysis.Errors.FirstOrDefault() ?? "预检失败";
@@ -1558,6 +1566,18 @@ ADDCOLUMNS(
         });
     }
 
+    private string GetCurrentConnectionString()
+    {
+        if (_currentPort.HasValue)
+        {
+            return $"DataSource=localhost:{_currentPort.Value};";
+        }
+
+        return string.IsNullOrWhiteSpace(_lastTabularServer)
+            ? string.Empty
+            : $"DataSource={_lastTabularServer};";
+    }
+
     private string BuildOnDemandDeepContext(string prompt, bool includeHiddenObjects)
     {
         if (_model is null)
@@ -1565,9 +1585,7 @@ ADDCOLUMNS(
             return string.Empty;
         }
 
-        var connectionString = _currentPort.HasValue
-            ? $"DataSource=localhost:{_currentPort.Value};"
-            : (!string.IsNullOrWhiteSpace(_lastTabularServer) ? $"DataSource={_lastTabularServer};" : string.Empty);
+        var connectionString = GetCurrentConnectionString();
 
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -1787,7 +1805,13 @@ ADDCOLUMNS(
 
     private (string Snapshot, string Rollback) CreateBackup(AbiActionPlan plan)
     {
-        var before = _reader.ReadMetadata(_currentPort!.Value, _model!.DatabaseName);
+        var connectionString = GetCurrentConnectionString();
+        if (string.IsNullOrWhiteSpace(connectionString) || _model is null)
+        {
+            throw new InvalidOperationException("No connected model is available for backup.");
+        }
+
+        var before = _reader.ReadMetadata(connectionString, _model.DatabaseName);
         var dir = BackupRoot();
         var ts = DateTime.Now.ToString("yyyyMMdd-HHmmss");
         var modelKey = ResolveCurrentBackupModelKey(before.DatabaseName);

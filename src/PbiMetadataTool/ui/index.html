@@ -806,6 +806,8 @@ select.setting-input { cursor: pointer; }
     <div class="mode-panel" id="panel-tabular">
       <div><div class="field-label">服务器地址</div>
         <input class="setting-input" id="conn-tabular" placeholder="localhost:2383 / powerbi://.../工作区"></div>
+      <div><div class="field-label">数据库名（可选）</div>
+        <input class="setting-input" id="conn-tabular-db" placeholder="留空时稍后在下拉中选择或直接输入"></div>
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer">
         <input type="checkbox" id="conn-allow-write2" style="accent-color:var(--accent)"> 允许写回（高风险）
       </label>
@@ -827,9 +829,12 @@ select.setting-input { cursor: pointer; }
     <div class="dlg-body">
       <div>
         <div class="field-label">数据库</div>
-        <select class="setting-input" id="db-picker-select">
-          <option value="">请选择数据库...</option>
-        </select>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input class="setting-input" id="db-picker-input" list="db-picker-options" placeholder="可从列表选择，也可直接输入" autocomplete="off">
+          <datalist id="db-picker-options"></datalist>
+          <button class="dlg-btn" id="db-picker-load" type="button" style="padding:0 12px;white-space:nowrap">加载列表</button>
+        </div>
+        <div id="db-picker-hint" style="margin-top:8px;font-size:11.5px;color:var(--text2)"></div>
       </div>
     </div>
     <div class="dlg-footer">
@@ -969,7 +974,7 @@ const State = {
   connected: false, dbName: '', allowChanges: false, aiModel: '', aiProvider: 'openai',
   activeConnectionMode: '', tabularServer: '', tabularDatabases: [],
   dbPickerReason: '', pendingTabularAllowWrite: null,
-  dbPickerModalOpen: false,
+  dbPickerModalOpen: false, dbPickerBusy: false, dbPickerListLoading: false,
   modelSwitching: false, pendingSwitchDbName: '',
   instances: [], pendingPlan: null, backups: [], settings: {}, planHistory: [],
   selectedBackupPath: null, connectMode: 'pbi',
@@ -2699,12 +2704,96 @@ document.getElementById('chat-input').addEventListener('drop', function(e) {
 
 // Connect Dialog
 function setDbPickerBusy(busy) {
-  const select = document.getElementById('db-picker-select');
+  State.dbPickerBusy = !!busy;
+  const input = document.getElementById('db-picker-input');
+  const btnLoad = document.getElementById('db-picker-load');
   const btnOk = document.getElementById('db-picker-ok');
   const btnCancel = document.getElementById('db-picker-cancel');
-  if (select) select.disabled = !!busy;
-  if (btnOk) btnOk.disabled = !!busy;
-  if (btnCancel) btnCancel.disabled = !!busy;
+  if (input) input.disabled = State.dbPickerBusy;
+  if (btnLoad) {
+    btnLoad.disabled = State.dbPickerBusy || State.dbPickerListLoading;
+    btnLoad.textContent = State.dbPickerListLoading ? '加载中...' : '加载列表';
+  }
+  if (btnOk) btnOk.disabled = State.dbPickerBusy;
+  if (btnCancel) btnCancel.disabled = State.dbPickerBusy;
+}
+
+function setDbPickerListLoading(loading) {
+  State.dbPickerListLoading = !!loading;
+  const input = document.getElementById('db-picker-input');
+  const btnLoad = document.getElementById('db-picker-load');
+  if (input) {
+    if (State.dbPickerListLoading) {
+      input.setAttribute('aria-busy', 'true');
+    } else {
+      input.removeAttribute('aria-busy');
+    }
+  }
+  if (btnLoad) {
+    btnLoad.disabled = State.dbPickerBusy || State.dbPickerListLoading;
+    btnLoad.textContent = State.dbPickerListLoading ? '加载中...' : '加载列表';
+  }
+}
+
+function updateDbPickerHint(text) {
+  const hint = document.getElementById('db-picker-hint');
+  if (!hint) return;
+  hint.textContent = text || '点击输入框或“加载列表”以获取数据库列表，也可直接输入数据库名。';
+}
+
+function renderDbPickerOptions(list, selectedName) {
+  const input = document.getElementById('db-picker-input');
+  const datalist = document.getElementById('db-picker-options');
+  if (!input || !datalist) return;
+
+  datalist.innerHTML = (list || []).map(function(db) {
+    const name = String(db && db.name || db && db.id || '').trim();
+    if (!name) return '';
+    return '<option value="' + esc(name) + '"></option>';
+  }).join('');
+
+  input.value = String(selectedName || '').trim();
+  if (Array.isArray(list) && list.length) {
+    updateDbPickerHint('可从列表选择，也可直接输入数据库名。');
+  } else {
+    updateDbPickerHint('点击输入框或“加载列表”后再拉取数据库列表，也可直接输入数据库名。');
+  }
+}
+
+function maybeRequestDbPickerList(force) {
+  if (!State.dbPickerModalOpen) return;
+  const server = String(State.tabularServer || '').trim();
+  if (!server) {
+    toast('请先输入 Tabular 服务器地址', 'warn');
+    return;
+  }
+  if (State.dbPickerListLoading) {
+    return;
+  }
+  if (!force && Array.isArray(State.tabularDatabases) && State.tabularDatabases.length) {
+    const input = document.getElementById('db-picker-input');
+    renderDbPickerOptions(State.tabularDatabases, input && input.value ? input.value : '');
+    return;
+  }
+
+  setDbPickerListLoading(true);
+  updateDbPickerHint('正在加载数据库列表...');
+  const payload = { reason: State.dbPickerReason || 'connect', server: server };
+  if (typeof State.pendingTabularAllowWrite === 'boolean') {
+    payload.allowWrite = State.pendingTabularAllowWrite;
+  }
+  bridge.send('requestTabularDatabases', payload);
+}
+
+function maybeRequestModelDbList(force) {
+  if (!(State.connected && State.activeConnectionMode === 'tabular')) {
+    return;
+  }
+  if (!force && Array.isArray(State.tabularDatabases) && State.tabularDatabases.length) {
+    renderModelDbOptions(State.tabularDatabases, false, State.dbName);
+    return;
+  }
+  bridge.send('requestTabularDatabases', { reason: 'switch', server: State.tabularServer || '' });
 }
 
 function closeDbPickerModal(resetConnectSelection) {
@@ -2712,7 +2801,9 @@ function closeDbPickerModal(resetConnectSelection) {
   if (!overlay) return;
   overlay.classList.remove('show');
   State.dbPickerModalOpen = false;
+  setDbPickerListLoading(false);
   setDbPickerBusy(false);
+  renderDbPickerOptions([], '');
   if (resetConnectSelection) {
     State.dbPickerReason = '';
     State.pendingTabularAllowWrite = null;
@@ -2722,15 +2813,17 @@ function closeDbPickerModal(resetConnectSelection) {
 
 function openDbPickerModal(server, list, currentDbName) {
   const overlay = document.getElementById('db-picker-overlay');
-  const select = document.getElementById('db-picker-select');
-  if (!overlay || !select) return;
+  const input = document.getElementById('db-picker-input');
+  if (!overlay || !input) return;
 
-  const dbName = String(currentDbName || '').trim();
-  renderModelDbOptions(list, true, dbName, select);
+  State.tabularServer = String(server || State.tabularServer || '').trim();
+  const dbName = String(currentDbName || input.value || '').trim();
+  renderDbPickerOptions(list, dbName);
+  setDbPickerListLoading(false);
   setDbPickerBusy(false);
   overlay.classList.add('show');
   State.dbPickerModalOpen = true;
-  select.focus();
+  input.focus();
 }
 
 document.getElementById('btn-connect').addEventListener('click', openConnectDialog);
@@ -2742,25 +2835,36 @@ document.getElementById('db-picker-cancel').addEventListener('click', function()
   closeDbPickerModal(true);
 });
 document.getElementById('db-picker-ok').addEventListener('click', function() {
-  const select = document.getElementById('db-picker-select');
-  const dbName = String(select && select.value || '').trim();
+  const input = document.getElementById('db-picker-input');
+  const dbName = String(input && input.value || '').trim();
   if (!dbName) {
-    toast('请选择要连接的数据库', 'warn');
-    if (select) select.focus();
+    toast('请输入要连接的数据库名', 'warn');
+    if (input) input.focus();
     return;
   }
   setDbPickerBusy(true);
   submitModelDbSelection(dbName);
 });
-document.getElementById('model-db-select').addEventListener('mousedown', function() {
-  if (State.connected && State.activeConnectionMode === 'tabular') {
-    bridge.send('requestTabularDatabases', { reason: 'switch', server: State.tabularServer || '' });
+document.getElementById('db-picker-load').addEventListener('click', function() {
+  maybeRequestDbPickerList(true);
+});
+document.getElementById('db-picker-input').addEventListener('mousedown', function() {
+  maybeRequestDbPickerList(false);
+});
+document.getElementById('db-picker-input').addEventListener('focus', function() {
+  maybeRequestDbPickerList(false);
+});
+document.getElementById('db-picker-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    document.getElementById('db-picker-ok').click();
   }
 });
+document.getElementById('model-db-select').addEventListener('mousedown', function() {
+  maybeRequestModelDbList(false);
+});
 document.getElementById('model-db-select').addEventListener('focus', function() {
-  if (State.connected && State.activeConnectionMode === 'tabular') {
-    bridge.send('requestTabularDatabases', { reason: 'switch', server: State.tabularServer || '' });
-  }
+  maybeRequestModelDbList(false);
 });
 document.getElementById('model-db-select').addEventListener('change', submitModelDbSelection);
 
@@ -2812,24 +2916,49 @@ function openConnectDialog() {
   if (State.instances.length === 0) {
     requestInstanceScan(true, true);
   }
-  closeDbPickerModal(false);
+  closeDbPickerModal(true);
   document.getElementById('connect-overlay').classList.add('show');
   document.getElementById('conn-tabular').value = State.uiPrefs.defaultTabularServer || '';
+  document.getElementById('conn-tabular-db').value = '';
   setConnectModeUI(State.uiPrefs.defaultConnectMode);
   document.getElementById('conn-allow-write').checked = State.allowChanges;
   document.getElementById('conn-allow-write2').checked = State.allowChanges;
 }
 
 function doConnect() {
-  const allowWrite = document.getElementById('conn-allow-write').checked;
+  const allowWrite = State.connectMode === 'tabular'
+    ? document.getElementById('conn-allow-write2').checked
+    : document.getElementById('conn-allow-write').checked;
   if (State.connectMode === 'pbi') {
     const port = document.getElementById('conn-port').value.trim();
     bridge.send('connect', { mode: 'pbi', port: port, allowWrite: allowWrite });
+    document.getElementById('connect-overlay').classList.remove('show');
   } else {
     const server = document.getElementById('conn-tabular').value.trim();
-    bridge.send('connect', { mode: 'tabular', server: server, allowWrite: allowWrite });
+    const database = document.getElementById('conn-tabular-db').value.trim();
+    if (!server) {
+      toast('请输入 Tabular 服务器地址', 'warn');
+      return;
+    }
+
+    State.tabularServer = server;
+    State.dbPickerReason = 'connect';
+    State.pendingTabularAllowWrite = allowWrite;
+    State.tabularDatabases = [];
+    document.getElementById('connect-overlay').classList.remove('show');
+
+    if (database) {
+      showModelSwitchingState(database);
+      bridge.send('connectTabularDatabase', { server: server, database: database, allowWrite: allowWrite });
+      return;
+    }
+
+    renderModelDbOptions([], true, '');
+    showPage('dashboard');
+    updateDbSwitchButton();
+    openDbPickerModal(server, [], '');
+    return;
   }
-  document.getElementById('connect-overlay').classList.remove('show');
 }
 
 function renderModelDbOptions(list, includePlaceholder, selectedName, targetSelect) {
@@ -2851,6 +2980,12 @@ function renderModelDbOptions(list, includePlaceholder, selectedName, targetSele
 
   const target = String(selectedName || '').trim();
   if (!target) return;
+  const hasTarget = Array.from(select.options || []).some(function(opt) {
+    return String(opt.value || '').trim().toLowerCase() === target.toLowerCase();
+  });
+  if (!hasTarget) {
+    select.insertAdjacentHTML('beforeend', '<option value="' + esc(target) + '">' + esc(displayModelName(target) || target) + '</option>');
+  }
   select.value = target;
 }
 
@@ -2883,18 +3018,30 @@ function clearModelSwitchingState(restoreTree) {
 function openModelDbSelector(payload) {
   const list = Array.isArray(payload && payload.databases) ? payload.databases : [];
   const server = String(payload && payload.server || '').trim();
+  const reason = String(payload && payload.reason || 'switch').trim() || 'switch';
+  setDbPickerListLoading(false);
   if (!server) {
     toast('未返回服务器地址，无法选择数据库', 'error');
+    setDbPickerBusy(false);
     return;
   }
-  if (!list.length) {
+
+  const connectPickerCancelled = reason === 'connect' && !State.dbPickerModalOpen && State.dbPickerReason !== 'connect';
+  if (!list.length && reason !== 'connect') {
     toast('当前服务器没有可用数据库', 'warn');
     return;
   }
 
   State.tabularServer = server;
   State.tabularDatabases = list;
-  State.dbPickerReason = String(payload && payload.reason || 'switch').trim() || 'switch';
+
+  if (connectPickerCancelled) {
+    setDbPickerBusy(false);
+    updateDbSwitchButton();
+    return;
+  }
+
+  State.dbPickerReason = reason;
   State.pendingTabularAllowWrite = (payload && typeof payload.allowWrite === 'boolean')
     ? payload.allowWrite
     : null;
@@ -2902,22 +3049,28 @@ function openModelDbSelector(payload) {
   const select = document.getElementById('model-db-select');
   if (!select) return;
 
-  const includePlaceholder = State.dbPickerReason === 'connect';
+  const includePlaceholder = reason === 'connect';
   renderModelDbOptions(
     list,
     includePlaceholder,
-    State.dbPickerReason === 'connect' ? '' : State.dbName);
+    reason === 'connect' ? '' : State.dbName);
 
-  if (State.dbPickerReason === 'connect') {
+  if (reason === 'connect') {
     showPage('dashboard');
     updateDbSwitchButton();
-    const currentDbName = String(payload && payload.currentDatabase || '').trim();
+    const input = document.getElementById('db-picker-input');
+    const currentDbName = String((input && input.value) || (payload && payload.currentDatabase) || '').trim();
     openDbPickerModal(server, list, currentDbName);
+    if (!list.length) {
+      updateDbPickerHint('未获取到数据库列表，可直接输入数据库名后连接。');
+      toast('未获取到数据库列表，可直接输入数据库名', 'warn');
+      return;
+    }
   } else {
     updateDbSwitchButton();
   }
 
-  if (State.dbPickerReason === 'connect') {
+  if (reason === 'connect') {
     toast('请选择要连接的数据库', 'info');
   }
 }
@@ -2926,9 +3079,13 @@ function submitModelDbSelection(forcedDbName) {
   const select = document.getElementById('model-db-select');
   if (!select) return;
 
-  const dbName = String(forcedDbName || select.value || '').trim();
+  const pickerInput = State.dbPickerModalOpen ? document.getElementById('db-picker-input') : null;
+  const dbName = String(forcedDbName || (pickerInput && pickerInput.value) || select.value || '').trim();
   if (!dbName) {
     return;
+  }
+  if (pickerInput) {
+    pickerInput.value = dbName;
   }
   select.value = dbName;
 
@@ -3690,6 +3847,9 @@ const App = {
         }
         State.dbPickerReason = '';
         State.pendingTabularAllowWrite = null;
+        State.dbPickerListLoading = false;
+        State.dbPickerBusy = false;
+        setToggle('ts-allow', State.allowChanges);
         if (State.dbPickerModalOpen) {
           closeDbPickerModal(false);
         }
@@ -3714,6 +3874,8 @@ const App = {
         State.tabularDatabases = [];
         State.dbPickerReason = '';
         State.pendingTabularAllowWrite = null;
+        State.dbPickerListLoading = false;
+        State.dbPickerBusy = false;
         if (State.dbPickerModalOpen) {
           closeDbPickerModal(false);
         }
@@ -3744,6 +3906,7 @@ const App = {
       case 'connectTabularDatabaseFailed':
         clearModelSwitchingState(true);
         if (State.dbPickerReason === 'connect') {
+          setDbPickerListLoading(false);
           setDbPickerBusy(false);
           if (!State.dbPickerModalOpen) {
             openDbPickerModal(State.tabularServer, State.tabularDatabases, State.dbName);
@@ -3876,6 +4039,12 @@ const App = {
         if (msg.payload && typeof msg.payload.text === 'string') {
           if (msg.payload.text === '连接测试成功') break;
           if (msg.payload.text.startsWith('连接测试失败')) break;
+        }
+        if (State.dbPickerListLoading) {
+          setDbPickerListLoading(false);
+          if (State.dbPickerModalOpen && (!Array.isArray(State.tabularDatabases) || State.tabularDatabases.length === 0)) {
+            updateDbPickerHint('数据库列表加载失败，可直接输入数据库名后连接。');
+          }
         }
         toast(msg.payload.text, msg.payload.level || 'info');
         break;

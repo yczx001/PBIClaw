@@ -13,6 +13,9 @@ internal sealed record TabularActionAnalysis(
 internal sealed class TabularModelWriter
 {
     public TabularActionAnalysis AnalyzeActions(int port, string? databaseName, AbiActionPlan plan)
+        => AnalyzeActions($"DataSource=localhost:{port};", databaseName, plan);
+
+    public TabularActionAnalysis AnalyzeActions(string connectionString, string? databaseName, AbiActionPlan plan)
     {
         if (plan.Actions.Count == 0)
         {
@@ -26,7 +29,6 @@ internal sealed class TabularModelWriter
         var warnings = new List<string>();
         var errors = new List<string>();
 
-        var connectionString = $"DataSource=localhost:{port};";
         var server = new Server();
         server.Connect(connectionString);
 
@@ -60,6 +62,9 @@ internal sealed class TabularModelWriter
     }
 
     public IReadOnlyList<string> ApplyActions(int port, string? databaseName, AbiActionPlan plan)
+        => ApplyActions($"DataSource=localhost:{port};", databaseName, plan);
+
+    public IReadOnlyList<string> ApplyActions(string connectionString, string? databaseName, AbiActionPlan plan)
     {
         if (plan.Actions.Count == 0)
         {
@@ -67,7 +72,6 @@ internal sealed class TabularModelWriter
         }
 
         var results = new List<string>();
-        var connectionString = $"DataSource=localhost:{port};";
         var server = new Server();
         server.Connect(connectionString);
 
