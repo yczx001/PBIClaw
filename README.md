@@ -74,7 +74,7 @@ PBI Claw 是一个面向 Power BI Desktop 的智能建模助手，形态为：
 ```text
 .
 ├─ docs/
-│  └─ ABI_UI_PRD.md
+│  └─ PBI_CLAW_UI_PRD.md
 ├─ external-tools/
 │  └─ PBIClaw.pbitool.json
 ├─ src/

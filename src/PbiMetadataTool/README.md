@@ -13,7 +13,7 @@ Power BI Desktop External Tool + Standalone Assistant:
 - 每次执行前自动生成模型快照与回滚脚本（JSON），并支持“执行回滚文件”
 - 新增“备份中心”可浏览历史快照/回滚文件并直接触发回滚
 
-UI 重构需求文档：`docs/ABI_UI_PRD.md`
+UI 重构需求文档：`docs/PBI_CLAW_UI_PRD.md`
 
 ## Build Installer EXE
 
