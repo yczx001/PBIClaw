@@ -2,13 +2,12 @@
 
 ## ✨ 界面预览
 
-| 📊 总览页 | 💬 AI对话页 |
-|----------|------------|
-| ![总览页](docs/screenshot-overview.png) | ![AI对话页](docs/screenshot-chat.png) |
-
-| 🛡️ 备份回滚 | ⚙️ 设置页 |
-|------------|----------|
-| ![备份回滚](docs/screenshot-backup.png) | ![设置页](docs/screenshot-settings.png) |
+| 页面 | 说明 | 截图 |
+|------|------|------|
+| AI 对话 | 连接当前模型后，直接围绕表、关系、度量值和报表上下文进行问答，支持流式回复与快捷追问。 | ![AI 对话](docs/ai-chat.png) |
+| 变更执行 | 将 AI 生成的 `abi_action_plan` 转成可勾选、可预检、可分步执行的变更列表，降低直接写回风险。 | ![变更执行](docs/change-execution.png) |
+| 备份回滚 | 每次执行前自动生成快照与回滚文件，并在备份中心统一查看、筛选和执行回滚。 | ![备份回滚](docs/backup-rollback.png) |
+| 设置 | 集中配置 AI 协议、Base URL、模型、API Key、温度和测试连接等运行参数。 | ![设置](docs/settings.png) |
 
 PBI Claw 是一个面向 Power BI Desktop 的智能建模助手，形态为：
 
