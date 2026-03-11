@@ -30,6 +30,161 @@ internal static class InstallerEngine
         return Path.Combine(programFiles, ToolDisplayName);
     }
 
+    public static string? GetExistingInstallDir()
+    {
+        // 从注册表查找已安装路径
+        using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PBI Claw");
+        if (key != null)
+        {
+            var installLocation = key.GetValue("InstallLocation") as string;
+            if (!string.IsNullOrWhiteSpace(installLocation) && Directory.Exists(installLocation))
+            {
+                return installLocation;
+            }
+        }
+
+        // 检查默认安装路径
+        var defaultDir = GetDefaultInstallDir();
+        if (Directory.Exists(defaultDir) && File.Exists(Path.Combine(defaultDir, ToolExeName)))
+        {
+            return defaultDir;
+        }
+
+        return null;
+    }
+
+    public static void Uninstall(string installDir)
+    {
+        if (!IsAdministrator())
+        {
+            throw new InvalidOperationException("卸载需要管理员权限。");
+        }
+
+        var normalizedInstallDir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(installDir));
+        if (!Directory.Exists(normalizedInstallDir))
+        {
+            throw new InvalidOperationException($"安装目录不存在：{normalizedInstallDir}");
+        }
+
+        if (IsAnyToolProcessRunning())
+        {
+            throw new InvalidOperationException("检测到 PBIClaw 仍在运行，请先关闭所有 PBIClaw 进程后再重试卸载。");
+        }
+
+        // 1. 删除Power BI外部工具配置
+        var externalToolDirs = GetMachineExternalToolDirs();
+        foreach (var externalToolDir in externalToolDirs)
+        {
+            var jsonPath = Path.Combine(externalToolDir, ToolJsonName);
+            TryDeleteFile(jsonPath);
+        }
+
+        // 2. 删除快捷方式
+        var shortcutCandidates = new List<string>();
+        // 桌面快捷方式
+        shortcutCandidates.AddRange(BuildShortcutCandidates(Environment.SpecialFolder.CommonDesktopDirectory, Environment.SpecialFolder.DesktopDirectory));
+        // 开始菜单快捷方式
+        shortcutCandidates.AddRange(BuildShortcutCandidates(Environment.SpecialFolder.CommonPrograms, Environment.SpecialFolder.Programs));
+
+        foreach (var shortcutPath in shortcutCandidates)
+        {
+            TryDeleteFile(shortcutPath);
+        }
+
+        // 3. 删除注册表卸载信息
+        try
+        {
+            Microsoft.Win32.Registry.LocalMachine.DeleteSubKeyTree(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PBI Claw", false);
+        }
+        catch
+        {
+            // 忽略注册表删除错误
+        }
+
+        // 4. 删除安装目录文件
+        try
+        {
+            Directory.Delete(normalizedInstallDir, recursive: true);
+        }
+        catch
+        {
+            // 如果删除失败，安排下次重启时删除
+            try
+            {
+                var moveDir = Path.Combine(Path.GetTempPath(), $"PBIClaw_Uninstall_{Guid.NewGuid():N}");
+                Directory.Move(normalizedInstallDir, moveDir);
+
+                // 使用MoveFileEx安排重启删除
+                MoveFileEx(moveDir, null, MoveFileFlags.MOVEFILE_DELAY_UNTIL_REBOOT);
+            }
+            catch
+            {
+                // 忽略最终删除错误，至少已经移除了所有入口
+            }
+        }
+    }
+
+    public static void RegisterUninstallInformation(string installDir, string version)
+    {
+        if (!IsAdministrator())
+        {
+            return; // 非管理员安装不写入注册表
+        }
+
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PBI Claw");
+            if (key == null) return;
+
+            var exePath = Path.Combine(installDir, ToolExeName);
+            var setupExePath = Environment.ProcessPath ?? exePath;
+
+            key.SetValue("DisplayName", ToolDisplayName);
+            key.SetValue("DisplayVersion", version);
+            key.SetValue("Publisher", "PBI Hub");
+            key.SetValue("InstallLocation", installDir);
+            key.SetValue("InstallDate", DateTime.Now.ToString("yyyyMMdd"));
+            key.SetValue("UninstallString", $"\"{setupExePath}\" --uninstall");
+            key.SetValue("ModifyPath", $"\"{setupExePath}\" --install-dir \"{installDir}\"");
+            key.SetValue("DisplayIcon", $"{exePath},0");
+            key.SetValue("EstimatedSize", GetDirectorySize(installDir) / 1024); // KB
+            key.SetValue("URLInfoAbout", "https://pbihub.cn");
+            key.SetValue("NoRepair", 1);
+            key.SetValue("NoModify", 0);
+        }
+        catch
+        {
+            // 忽略注册表写入错误，不影响安装
+        }
+    }
+
+    private static long GetDirectorySize(string path)
+    {
+        long size = 0;
+        try
+        {
+            var dirInfo = new DirectoryInfo(path);
+            foreach (var file in dirInfo.GetFiles("*", SearchOption.AllDirectories))
+            {
+                size += file.Length;
+            }
+        }
+        catch
+        {
+            // 忽略大小计算错误
+        }
+        return size;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool MoveFileEx(string lpExistingFileName, string? lpNewFileName, MoveFileFlags dwFlags);
+
+    [Flags]
+    private enum MoveFileFlags : uint
+    {
+        MOVEFILE_DELAY_UNTIL_REBOOT = 0x00000004
+    }
+
     public static IReadOnlyList<string> GetMachineExternalToolDirs()
     {
         var dirs = new List<string>();
@@ -128,6 +283,26 @@ internal static class InstallerEngine
         }
 
         var args = $"--machine --install-dir \"{installDir}\"";
+        var info = new ProcessStartInfo
+        {
+            FileName = exe,
+            Arguments = args,
+            UseShellExecute = true,
+            Verb = "runas"
+        };
+
+        Process.Start(info);
+    }
+
+    public static void RelaunchAsAdminForUninstall(string installDir)
+    {
+        var exe = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(exe))
+        {
+            throw new InvalidOperationException("Cannot determine current executable path.");
+        }
+
+        var args = $"--uninstall --install-dir \"{installDir}\"";
         var info = new ProcessStartInfo
         {
             FileName = exe,

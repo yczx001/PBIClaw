@@ -343,6 +343,11 @@ internal sealed class SetupWizardForm : Form
                     _result.InstallDir,
                     _createDesktopShortcut,
                     _createStartMenuShortcut));
+
+            // 写入注册表卸载信息
+            var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
+            InstallerEngine.RegisterUninstallInformation(_result.InstallDir, version);
+
             ExitCode = 0;
             Close();
         }
