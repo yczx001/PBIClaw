@@ -1,5 +1,15 @@
 # PBI Claw（Power BI 智能助手）
 
+## ✨ 界面预览
+
+| 📊 总览页 | 💬 AI对话页 |
+|----------|------------|
+| ![总览页](docs/screenshot-overview.png) | ![AI对话页](docs/screenshot-chat.png) |
+
+| 🛡️ 备份回滚 | ⚙️ 设置页 |
+|------------|----------|
+| ![备份回滚](docs/screenshot-backup.png) | ![设置页](docs/screenshot-settings.png) |
+
 PBI Claw 是一个面向 Power BI Desktop 的智能建模助手，形态为：
 
 - Power BI `External Tools` 外部工具
@@ -260,7 +270,7 @@ dotnet run --project .\src\PbiMetadataTool\PbiMetadataTool.csproj
 
 ## 11. 性能与上下文策略
 
-- 聊天请求超时：`180s`
+- 聊天请求超时：`600s`
 - 对话上下文尾部限制：最多 `8` 条消息、约 `12000` 字符
 - 初始模型上下文采用“索引模式”（精简），按提问内容触发深度查询
 - 对深度 Power Query 读取结果使用缓存（默认 TTL 20 分钟），降低重复查询开销

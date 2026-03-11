@@ -272,8 +272,9 @@ input.setting-input[type='number']::-webkit-inner-spin-button { -webkit-appearan
 .save-btn { padding: 8px 24px; border-radius: 8px; border: none; background: var(--accent); color: #fff; font-family: var(--font); font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s; }
 .save-btn:hover { background: #6ba3ff; }
 .save-btn:disabled { opacity: .65; cursor: not-allowed; }
-.settings-actions { display: flex; justify-content: flex-start; align-items: center; gap: 8px; margin-top: 4px; }
-.test-conn-status { font-size: 12px; color: var(--text2); line-height: 1.4; min-height: 17px; }
+.settings-actions { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 8px 12px; margin-top: 4px; }
+.settings-actions .topbar-btn { flex-shrink: 0; min-height: 30px; white-space: nowrap; align-self: start; }
+.test-conn-status { min-width: 0; font-size: 12px; color: var(--text2); line-height: 1.4; min-height: 17px; overflow-wrap: anywhere; word-break: break-word; }
 .test-conn-status.testing { color: var(--accent); }
 .test-conn-status.success { color: var(--success); }
 .test-conn-status.fail { color: var(--danger); }

@@ -9,7 +9,7 @@ internal sealed class AiChatClient
     private const string ProviderOpenAi = "openai";
     private const string ProviderAnthropic = "anthropic";
     private const string AnthropicApiVersion = "2023-06-01";
-    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(180);
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(600);
     private readonly HttpClient _httpClient = new();
 
     public AiChatClient()

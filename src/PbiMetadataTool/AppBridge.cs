@@ -20,7 +20,7 @@ internal sealed class AppBridge
     private const string GithubReleasesApiUrl = "https://api.github.com/repos/yczx001/PBIClaw/releases?per_page=20";
     private const string GithubLatestReleasePageUrl = "https://github.com/yczx001/PBIClaw/releases/latest";
     private const string ReleasePageUrl = "https://github.com/yczx001/PBIClaw/releases";
-    private const int ChatRequestTimeoutSeconds = 180;
+    private const int ChatRequestTimeoutSeconds = 600;
     private static readonly JsonSerializerOptions HistoryJsonOptions = new() { WriteIndented = true };
     private static readonly HttpClient UpdateHttpClient = CreateUpdateHttpClient();
 
